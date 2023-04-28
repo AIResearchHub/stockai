@@ -1,0 +1,16 @@
+
+
+- implement accumulating gradients
+
+- fix error
+
+- make it reproducible (added seeds for learner and actor)
+
+TODO:
+
+- debug (today)
+
+- batched actor (for inference and multiple env) (today)
+
+- start main training (today)
+
