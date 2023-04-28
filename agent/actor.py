@@ -23,7 +23,7 @@ class Actor:
         self.state_len = state_len
 
         self.env = Env(tickers=tickers,
-                       render=False,
+                       render=True,
                        start="2020-01-01",  # 2010
                        end="2021-01-01",
                        repeat=1
@@ -65,6 +65,7 @@ class Actor:
             start = time.time()
             while not done:
                 action, new_state = self.get_action(alloc, timestamp, tickers, state).wait()
+                print(action)
 
                 (new_alloc, new_timestamp), reward, done, tickers = self.env.step(action)
 
@@ -76,6 +77,7 @@ class Actor:
 
                 total_reward += reward
 
+            total_reward = self.env.normalize_reward(total_reward)
             episode = self.local_buffer.finish(tickers, total_reward, time.time()-start)
             self.return_episode(episode)
 

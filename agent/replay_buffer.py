@@ -57,7 +57,8 @@ class ReplayBuffer:
         self.d_model = d_model
         self.state_len = state_len
         self.n_step = n_step
-        self.gamma = gamma
+
+        self.gamma = np.full(n_step, gamma)**(np.arange(n_step))
 
         self.contexts = contexts
 
@@ -287,6 +288,7 @@ class LocalBuffer:
         actions = np.stack(self.action_buffer)
         rewards = np.stack(self.reward_buffer)
         states = np.stack(self.state_buffer)
+
         length = len(allocs)
 
         self.alloc_buffer.clear()

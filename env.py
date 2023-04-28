@@ -12,10 +12,10 @@ warnings.filterwarnings("ignore")
 class Env:
     def __init__(self,
                  tickers,
-                 render=False,
-                 start="2010-01-01",
-                 end="2021-01-01",
-                 repeat=1):
+                 render,
+                 start,
+                 end,
+                 repeat):
         """
         :param tickers:            List[string]
         :param render:             bool
@@ -96,6 +96,14 @@ class Env:
             stock2_reward += change[1]
 
         return avg_reward, stock1_reward, stock2_reward
+
+    def normalize_reward(self, total_reward):
+        _, reward1, reward2 = self.get_benchmark()
+        min_reward = min(reward1, reward2)
+        max_reward = max(reward1, reward2)
+        normalized_reward = (total_reward - min_reward) / (max_reward - min_reward)
+
+        return normalized_reward
 
     def render_episode(self):
         if self.render:

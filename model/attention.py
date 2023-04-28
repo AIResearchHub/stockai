@@ -52,9 +52,8 @@ class Attention(nn.Module):
 
     def forward(self, q, kv, mask=None):
         """
-        * k and v are the same thing
-
-        :param q, k, v: [batch_size, length, d_model]
+        :param   q:     [batch_size, length, d_model]
+        :param   kv:    [batch_size, length, d_model]
         :return: out:   [batch_size, length, d_model]
         """
         q, k, v = self.w_q(q), *self.w_kv(kv).chunk(2, dim=-1)

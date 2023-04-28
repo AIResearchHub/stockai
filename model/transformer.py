@@ -44,11 +44,7 @@ class BlockRecurrentTransformer(nn.Module):
                                       for _ in range(n_layers//2)])
 
     def init_state(self, batch_size, state_len):
-        return torch.zeros(
-            batch_size,
-            state_len,
-            self.d_model
-        ).cuda()
+        return torch.randn(batch_size, state_len, self.d_model).cuda()
 
     def state_forward(self, ids, state):
         """
@@ -58,7 +54,7 @@ class BlockRecurrentTransformer(nn.Module):
         """
 
         x = self.embedding(ids)
-        x, _ = self.statein(x, state.detach())
+        # x, _ = self.statein(x, state.detach())
 
         for layer in self.layers1:
             x = layer(x)
@@ -75,7 +71,7 @@ class BlockRecurrentTransformer(nn.Module):
         """
 
         x = self.embedding(ids)
-        x, _ = self.statein(x, state.detach())
+        # x, _ = self.statein(x, state.detach())
 
         for layer in self.layers1:
             x = layer(x)

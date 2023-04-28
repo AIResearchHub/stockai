@@ -11,7 +11,7 @@ from .transformer import BlockRecurrentTransformer
 class Model(nn.Module):
 
     def __init__(self,
-                 vocab_size,
+                 vocab_size=30522,
                  n_layers=4,
                  d_model=512,
                  n_head=8,

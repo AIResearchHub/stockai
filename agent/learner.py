@@ -12,7 +12,6 @@ from torch.futures import Future
 
 import numpy as np
 import threading
-import copy
 import time
 import random
 
@@ -70,13 +69,32 @@ class Learner:
                            n_head=n_head,
                            n_cos=n_cos
                            )
-        self.target_model = copy.deepcopy(self.model)
-        self.eval_model = copy.deepcopy(self.model)
+        self.target_model = Model(vocab_size=vocab_size,
+                                  n_layers=n_layers,
+                                  d_model=d_model,
+                                  n_head=n_head,
+                                  n_cos=n_cos
+                                  )
+        self.eval_model = Model(vocab_size=vocab_size,
+                                n_layers=n_layers,
+                                d_model=d_model,
+                                n_head=n_head,
+                                n_cos=n_cos
+                                )
+
+        # sync parameters
+        self.hard_update(self.target_model, self.model)
+        self.hard_update(self.eval_model, self.model)
 
         # send to cuda and wrap in DataParallel
         self.model = nn.DataParallel(self.model.cuda())
         self.target_model = nn.DataParallel(self.target_model.cuda())
         self.eval_model = nn.DataParallel(self.eval_model.cuda())
+
+        # set model modes
+        self.model.train()
+        self.target_model.eval()
+        self.eval_model.eval()
 
         # contexts
         self.contexts = read_context(tickers=tickers,
@@ -92,6 +110,7 @@ class Learner:
         self.rollout_len = rollout_len
         self.block_len = burnin_len + rollout_len
         self.n_step = n_step
+        self.gamma = self.gamma ** n_step
 
         # optimizer and loss functions
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
@@ -139,7 +158,6 @@ class Learner:
     def spawn_actor(learner_rref, tickers, d_model, state_len):
         """
         :return: RRef()   - to reference the actor worker
-                 Future() - to answer the actor calls
         """
         actor_rref = rpc.remote("actor",
                                 Actor,
@@ -344,6 +362,7 @@ class Learner:
         for x, grad in zip(self.model.parameters(), grads):
             x.grad = grad / self.n_accumulate
 
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
         self.optimizer.step()
 
         loss /= self.n_accumulate
@@ -412,15 +431,18 @@ class Learner:
             bert_target = bert_targets[ckpt]
             bert_expected = bert_expected.transpose(1, 2)
 
-            loss_, bert_loss_, ckpt_state = self.get_gradients_step(target=target,
-                                                                    expected=expected,
-                                                                    taus=taus,
-                                                                    bert_target=bert_target,
-                                                                    bert_expected=bert_expected,
-                                                                    state=state,
-                                                                    save_grad=save_grad,
-                                                                    ckpt_state=ckpt_state
-                                                                    )
+            loss_ = self.quantile_loss(expected, target, taus)
+            torch.autograd.backward([loss_, state], [None, save_grad])
+            bert_loss_ = torch.tensor(0.)
+            # loss_, bert_loss_, ckpt_state = self.get_gradients_step(target=target,
+            #                                                         expected=expected,
+            #                                                         taus=taus,
+            #                                                         bert_target=bert_target,
+            #                                                         bert_expected=bert_expected,
+            #                                                         state=state,
+            #                                                         save_grad=save_grad,
+            #                                                         ckpt_state=ckpt_state
+            #                                                         )
 
             if ckpt != self.burnin_len:
                 assert ckpt_state.grad is not None
@@ -465,12 +487,17 @@ class Learner:
 
         grads = [x.grad for x in self.model.parameters()]
 
-        # get critic grads
-        self.model.zero_grad()
+        # get critic grads -----------------------------------------
         loss = self.quantile_loss(expected, target, taus)
-        torch.autograd.backward([loss, state], [None, save_grad])  # , retain_graph=True)
-
+        torch.autograd.backward([loss, state], [None, save_grad])
         bert_loss = torch.tensor(0.)
+        # ----------------------------------------------------------
+
+        # get critic grads
+        # self.model.zero_grad()
+        # loss = self.quantile_loss(expected, target, taus)
+        # torch.autograd.backward([loss, state], [None, save_grad], retain_graph=True)
+        #
         # critic_grads = [x.grad for x in self.model.parameters()]
         # critic_state_grad = ckpt_state.grad
         # ckpt_state.grad = None
@@ -515,12 +542,12 @@ class Learner:
         grad1_ = grad1.detach()
 
         # project grad1
-        proj_direction = torch.sum(grad1 * grad2) / (torch.sum(grad2 * grad2) + torch.tensor(1e-10))
+        proj_direction = torch.sum(grad1 * grad2) / (torch.sum(grad2 * grad2) + torch.tensor(1e-12))
         grad1 = grad1 - torch.min(proj_direction, torch.tensor(0.)) * grad2
         assert not torch.isnan(grad1).any()
 
         # project grad2
-        proj_direction = torch.sum(grad2 * grad1_) / (torch.sum(grad1_ * grad1_) + torch.tensor(1e-10))
+        proj_direction = torch.sum(grad2 * grad1_) / (torch.sum(grad1_ * grad1_) + torch.tensor(1e-12))
         grad2 = grad2 - torch.min(proj_direction, torch.tensor(0.)) * grad1_
         assert not torch.isnan(grad2).any()
 

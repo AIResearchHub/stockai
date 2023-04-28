@@ -74,7 +74,7 @@ def run_worker(rank,
             time.sleep(1)
 
     else:
-        rpc.init_rpc(f"actor", rank=rank, world_size=2)
+        rpc.init_rpc("actor", rank=rank, world_size=2)
 
     rpc.shutdown()
 
@@ -127,10 +127,10 @@ if __name__ == "__main__":
     main(tickers=["AAPL", "AMZN"],
          mock_data=True,
          buffer_size=100000,
-         batch_size=16,
+         batch_size=32,
          n_accumulate=1,
          vocab_size=30522,
-         n_layers=4,
+         n_layers=6,
          d_model=512,
          n_head=8,
          state_len=1,
