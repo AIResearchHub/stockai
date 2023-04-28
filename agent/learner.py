@@ -64,16 +64,19 @@ class Learner:
         self.n_p = n_p
 
         # models
-        self.model = nn.DataParallel(
-            Model(vocab_size=vocab_size,
-                  n_layers=n_layers,
-                  d_model=d_model,
-                  n_head=n_head,
-                  n_cos=n_cos
-                  ).cuda()
-        )
+        self.model = Model(vocab_size=vocab_size,
+                           n_layers=n_layers,
+                           d_model=d_model,
+                           n_head=n_head,
+                           n_cos=n_cos
+                           )
         self.target_model = copy.deepcopy(self.model)
         self.eval_model = copy.deepcopy(self.model)
+
+        # send to cuda and wrap in DataParallel
+        self.model = nn.DataParallel(self.model.cuda())
+        self.target_model = nn.DataParallel(self.target_model.cuda())
+        self.eval_model = nn.DataParallel(self.eval_model.cuda())
 
         # contexts
         self.contexts = read_context(tickers=tickers,
