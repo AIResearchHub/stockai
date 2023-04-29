@@ -12,7 +12,8 @@ data = pd.read_csv(latestfile,
                           "Frames",
                           "Loss",
                           "Bert Loss",
-                          "Reward"]
+                          "Reward",
+                          "Epsilon"]
                    )
 
 plt.subplot(6, 1, 1)

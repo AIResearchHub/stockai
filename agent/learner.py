@@ -23,12 +23,15 @@ from utils import read_context, get_context
 
 
 class Learner:
-    epsilon = 0.2
+    epsilon = 1
+    epsilon_min = 0.2
+    epsilon_decay = 0.00005
+
     lr = 1e-4
     gamma = 0.99
 
     state_len = 1
-    tau = 0.04
+    tau = 0.01
     save_every = 100
 
     def __init__(self,
@@ -198,7 +201,10 @@ class Learner:
         """
         assert x[0].shape == (1, 1)
         assert x[1].shape == (1, 501)
-        assert state.shape == (1, 1, 512)
+        assert state.shape == (1, self.state_len, self.d_model)
+
+        self.epsilon -= self.epsilon_decay
+        self.epsilon = max(self.epsilon_min, self.epsilon)
 
         with self.lock_model:
             with torch.no_grad():
@@ -214,7 +220,7 @@ class Learner:
 
         critic_values = critic_values.mean(dim=2).view(1, self.n_p)
         idx_ = torch.argmax(critic_values, dim=1)
-        action = self.actions[0, idx_]
+        action = self.actions[torch.arange(1), idx_]
 
         action = action.cpu().squeeze().numpy().item()
         state = state.detach().cpu().numpy()
@@ -226,7 +232,7 @@ class Learner:
         :param alloc:     float
         :param timestamp: datetime.datetime
         :param tickers:   List[2]
-        :param state:     Array[1. state_len, d_model]
+        :param state:     Array[1, state_len, d_model]
         :return: action:  float
                  state:   Array[1, state_len, d_model]
         """
@@ -245,9 +251,6 @@ class Learner:
     def answer_requests(self):
         """
         Thread to answer actor requests
-
-        self.future1 answers inference calls
-        self.future2 answers return episode calls
         """
 
         while True:
@@ -316,7 +319,7 @@ class Learner:
                                                       )
 
         # update new states to buffer
-        self.priority_queue.put((idxs, new_states, loss, bert_loss))
+        self.priority_queue.put((idxs, new_states, loss, bert_loss, self.epsilon))
 
         # soft update target model
         self.soft_update(self.target_model, self.model, self.tau)
@@ -434,11 +437,11 @@ class Learner:
             loss_ = self.quantile_loss(expected, target, taus)
             torch.autograd.backward([loss_, state], [None, save_grad])
             bert_loss_ = torch.tensor(0.)
-            # loss_, bert_loss_, ckpt_state = self.get_gradients_step(target=target,
-            #                                                         expected=expected,
+            # loss_, bert_loss_, ckpt_state = self.get_gradients_step(expected=expected,
+            #                                                         target=target,
             #                                                         taus=taus,
-            #                                                         bert_target=bert_target,
             #                                                         bert_expected=bert_expected,
+            #                                                         bert_target=bert_target,
             #                                                         state=state,
             #                                                         save_grad=save_grad,
             #                                                         ckpt_state=ckpt_state
@@ -464,10 +467,10 @@ class Learner:
 
         return loss, bert_loss, new_states
 
-    def get_gradients_step(self, target, expected, taus, bert_target, bert_expected, state, save_grad, ckpt_state):
+    def get_gradients_step(self, expected, target, taus, bert_expected, bert_target, state, save_grad, ckpt_state):
         """
-        :param target         [batch_size, 1, n_tau]
         :param expected       [batch_size, n_tau, 1]
+        :param target         [batch_size, 1, n_tau]
         :param taus           [batch_size, n_tau, 1]
         :param bert_expected  [batch_size, max_len, vocab_size]
         :param bert_target    [batch_size, max_len]
@@ -487,54 +490,47 @@ class Learner:
 
         grads = [x.grad for x in self.model.parameters()]
 
-        # get critic grads -----------------------------------------
-        loss = self.quantile_loss(expected, target, taus)
-        torch.autograd.backward([loss, state], [None, save_grad])
-        bert_loss = torch.tensor(0.)
-        # ----------------------------------------------------------
-
         # get critic grads
-        # self.model.zero_grad()
-        # loss = self.quantile_loss(expected, target, taus)
-        # torch.autograd.backward([loss, state], [None, save_grad], retain_graph=True)
-        #
-        # critic_grads = [x.grad for x in self.model.parameters()]
-        # critic_state_grad = ckpt_state.grad
-        # ckpt_state.grad = None
-        # assert critic_state_grad is not None
-        #
-        # # get bert grads
-        # self.model.zero_grad()
-        # bert_loss = self.bert_loss(bert_expected, bert_target)
-        # torch.autograd.backward([bert_loss, state], [None, save_grad])
-        # bert_grads = [x.grad for x in self.model.parameters()]
-        # bert_state_grad = ckpt_state.grad
-        # ckpt_state.grad = None
-        # assert bert_state_grad is not None
-        #
-        # # project state gradients
-        # critic_state_grad, bert_state_grad = self.proj_grads(critic_state_grad, bert_state_grad)
-        # ckpt_state.grad = (critic_state_grad + bert_state_grad) / 2
-        #
-        # # project gradients
-        # for i in range(len(grads)):
-        #     if critic_grads[i] is not None and bert_grads[i] is not None:
-        #         critic_grads[i], bert_grads[i] = self.proj_grads(critic_grads[i], bert_grads[i])
-        #
-        # # put gradients back into model
-        # self.model.zero_grad()
-        # for i, x in enumerate(self.model.parameters()):
-        #
-        #     if grads[i] is None:
-        #         grads[i] = torch.zeros(x.shape).cuda()
-        #     if critic_grads[i] is None:
-        #         critic_grads[i] = torch.zeros(x.shape).cuda()
-        #     if bert_grads[i] is None:
-        #         bert_grads[i] = torch.zeros(x.shape).cuda()
-        #
-        #     x.grad = grads[i] + ((critic_grads[i] + bert_grads[i]) / 2)
-        #
-        # assert ckpt_state.grad is not None
+        self.model.zero_grad()
+        loss = self.quantile_loss(expected, target, taus)
+        torch.autograd.backward([loss, state], [None, save_grad], retain_graph=True)
+        critic_grads = [x.grad for x in self.model.parameters()]
+        critic_state_grad = ckpt_state.grad
+        ckpt_state.grad = None
+        assert critic_state_grad is not None
+
+        # get bert grads
+        self.model.zero_grad()
+        bert_loss = self.bert_loss(bert_expected, bert_target)
+        torch.autograd.backward([bert_loss, state], [None, save_grad])
+        bert_grads = [x.grad for x in self.model.parameters()]
+        bert_state_grad = ckpt_state.grad
+        ckpt_state.grad = None
+        assert bert_state_grad is not None
+
+        # project state gradients
+        critic_state_grad, bert_state_grad = self.proj_grads(critic_state_grad, bert_state_grad)
+        ckpt_state.grad = (critic_state_grad + bert_state_grad) / 2
+
+        # project gradients
+        for i in range(len(grads)):
+            if critic_grads[i] is not None and bert_grads[i] is not None:
+                critic_grads[i], bert_grads[i] = self.proj_grads(critic_grads[i], bert_grads[i])
+
+        # put gradients back into model
+        self.model.zero_grad()
+        for i, x in enumerate(self.model.parameters()):
+
+            if grads[i] is None:
+                grads[i] = torch.zeros(x.shape).cuda()
+            if critic_grads[i] is None:
+                critic_grads[i] = torch.zeros(x.shape).cuda()
+            if bert_grads[i] is None:
+                bert_grads[i] = torch.zeros(x.shape).cuda()
+
+            x.grad = grads[i] + ((critic_grads[i] + bert_grads[i]) / 2)
+
+        assert ckpt_state.grad is not None
         return loss, bert_loss, ckpt_state
 
     @staticmethod

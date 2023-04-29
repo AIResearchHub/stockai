@@ -4,7 +4,7 @@ import time
 
 class Logger:
     """
-`   Prints and logs data, parameters are modified directly by buffer threads
+    Prints and logs data, parameters are modified directly by buffer threads
     """
 
     def __init__(self):
@@ -16,6 +16,7 @@ class Logger:
         self.loss = 0
         self.bert_loss = 0
         self.reward = 0
+        self.epsilon = 0
 
         self.start = time.time()
 
@@ -23,21 +24,29 @@ class Logger:
         elapsed_time = time.time() - self.start
 
         if self.loss != 0 or self.bert_loss != 0:
-            self.file.write('{}, {}, {}, {}, {}, {} \n'.format(elapsed_time,
-                                                               self.total_updates,
-                                                               self.total_frames,
-                                                               self.loss,
-                                                               self.bert_loss,
-                                                               self.reward))
+            self.file.write('{}, {}, {}, {}, {}, {}, {}\n'.format(elapsed_time,
+                                                                  self.total_updates,
+                                                                  self.total_frames,
+                                                                  self.loss,
+                                                                  self.bert_loss,
+                                                                  self.reward,
+                                                                  self.epsilon))
             self.file.flush()
 
-        print('Elapsed: {:>8.4f}  Updates: {:>8}  Frames: {:>8} Loss: {:>10.8f} BertLoss: {:>10.8f} Reward: {:>10.4f}'
+        print('Elapsed: {:>8.4f}  '
+              'Updates: {:>8}  '
+              'Frames: {:>8} '
+              'Loss: {:>10.8f} '
+              'BertLoss: {:>10.8f} '
+              'Reward: {:>10.4f} '
+              'Epsilon: {:>8.3f} '
               .format(elapsed_time,
                       self.total_updates,
                       self.total_frames,
                       self.loss,
                       self.bert_loss,
-                      self.reward
+                      self.reward,
+                      self.epsilon
                       ),
               flush=True)
 

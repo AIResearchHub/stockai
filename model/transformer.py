@@ -23,6 +23,7 @@ class BlockRecurrentTransformer(nn.Module):
         self.embedding = TransformerEmbedding(vocab_size=vocab_size,
                                               d_model=d_model,
                                               max_len=max_len)
+        self.load_embeddings()
 
         self.statein = RecurrentAttentionLayer(d_model=d_model,
                                                ffn_hidden=4 * d_model,
@@ -42,6 +43,19 @@ class BlockRecurrentTransformer(nn.Module):
                                                      n_head=n_head,
                                                      p=p)
                                       for _ in range(n_layers//2)])
+
+    def load_embeddings(self):
+        tok_dict = torch.load("saved/word_embeddings")
+        pos_dict = torch.load("saved/position_embeddings")
+
+        tok_dict["emb.weight"] = tok_dict["weight"]
+        pos_dict["encoding"] = pos_dict["weight"]
+
+        del tok_dict["weight"]
+        del pos_dict["weight"]
+
+        self.embedding.tok_emb.load_state_dict(tok_dict)
+        self.embedding.pos_emb.load_state_dict(pos_dict)
 
     def init_state(self, batch_size, state_len):
         return torch.randn(batch_size, state_len, self.d_model).cuda()

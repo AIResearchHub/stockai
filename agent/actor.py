@@ -36,7 +36,7 @@ class Actor:
         :param alloc:     float
         :param timestamp: datetime.datetime
         :param tickers:   List[2]
-        :param state:     Array[1. state_len, d_model]
+        :param state:     Array[1, state_len, d_model]
         :return:
             Future(
                  action:  float
@@ -65,7 +65,6 @@ class Actor:
             start = time.time()
             while not done:
                 action, new_state = self.get_action(alloc, timestamp, tickers, state).wait()
-                print(action)
 
                 (new_alloc, new_timestamp), reward, done, tickers = self.env.step(action)
 

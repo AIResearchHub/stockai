@@ -182,7 +182,7 @@ class ReplayBuffer:
                 actions.append(self.buffer[buffer_idx].actions[time_idx:time_idx+self.block_len+self.n_step])
                 states.append(self.buffer[buffer_idx].states[time_idx])
 
-            ids, bert_targets = mask_ids(ids)
+            ids, bert_targets = mask_ids(ids, mask_prob=0.0)
 
             allocs = torch.tensor(np.stack(allocs)).view(self.batch_size, self.block_len+self.n_step, 1)
             ids = torch.tensor(np.stack(ids)).view(self.batch_size, self.block_len+self.n_step, 501)
@@ -219,12 +219,13 @@ class ReplayBuffer:
 
         return block
 
-    def update_priorities(self, idxs, states, loss, bert_loss):
+    def update_priorities(self, idxs, states, loss, bert_loss, epsilon):
         """
-        :param idxs: List[List[buffer_idx, time_idx]]
-        :param states: Array[batch_size, block_len+n_step, state_len, d_model]
-        :param loss: float
+        :param idxs:      List[List[buffer_idx, time_idx]]
+        :param states:    Array[batch_size, block_len+n_step, state_len, d_model]
+        :param loss:      float
         :param bert_loss: float
+        :param epsilon:   float
         """
         assert states.shape == (self.batch_size, self.block_len+self.n_step, self.state_len, self.d_model)
 
@@ -240,6 +241,7 @@ class ReplayBuffer:
             self.logger.total_updates += 1
             self.logger.loss = loss
             self.logger.bert_loss = bert_loss
+            self.logger.epsilon = epsilon
 
     def log(self):
 
@@ -275,9 +277,9 @@ class LocalBuffer:
 
     def finish(self, tickers, total_reward, total_time):
         """
-        :param tickers: List[2]
+        :param tickers:      List[2]
         :param total_reward: float
-        :param total_time: float
+        :param total_time:   float
 
         Note: total_reward could be different from reward since it might not be normalized
         """

@@ -131,7 +131,7 @@ if __name__ == "__main__":
          n_accumulate=1,
          vocab_size=30522,
          n_layers=6,
-         d_model=512,
+         d_model=768,
          n_head=8,
          state_len=1,
          burnin_len=10,
