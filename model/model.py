@@ -5,7 +5,7 @@ import torch.nn as nn
 
 import numpy as np
 
-from .transformer import BlockRecurrentTransformer
+from .transformer import Transformer, BlockRecurrentTransformer, BlockBERTlucidrains
 
 
 class Model(nn.Module):
@@ -30,6 +30,13 @@ class Model(nn.Module):
         self.merge2 = nn.Linear(d_model, d_model)
 
         # transformer
+        # self.transformer = Transformer(
+        #     vocab_size=vocab_size,
+        #     n_layers=n_layers,
+        #     d_model=d_model,
+        #     n_head=n_head,
+        #     p=p
+        # )
         self.transformer = BlockRecurrentTransformer(
             vocab_size=vocab_size,
             n_layers=n_layers,
@@ -37,10 +44,23 @@ class Model(nn.Module):
             n_head=n_head,
             p=p
         )
+        # self.transformer = BlockBERTlucidrains(
+        #     vocab_size=vocab_size,
+        #     n_layers=n_layers,
+        #     d_model=d_model,
+        #     n_head=n_head,
+        #     p=p
+        # )
 
         # separate two heads
         self.bert_head = nn.Linear(d_model, vocab_size)
         self.critic_head = nn.Linear(d_model, d_model)
+
+        # self.bert_head = nn.Sequential(
+        #     nn.Linear(d_model, vocab_size),
+        #     nn.LogSoftmax(dim=-1)
+        # )
+        # self.critic_head = nn.Linear(d_model, d_model)
 
         # iqn
         self.iqn = IQN(
@@ -51,6 +71,9 @@ class Model(nn.Module):
         # non-linearity
         self.gelu = nn.GELU()
         self.softmax = nn.LogSoftmax(dim=-1)
+
+        self.out1 = nn.Linear(d_model, d_model)
+        self.out2 = nn.Linear(d_model, 1)
 
     def init_state(self, batch_size=1, state_len=1):
         """
@@ -66,11 +89,12 @@ class Model(nn.Module):
         """
         return self.transformer.state_forward(ids, state)
 
-    def forward(self, xp, state, n_tau=8):
+    def forward(self, xp, state, n_tau):
         """
         :param xp:    Tensor[batch_size, length]
                       Tensor[batch_size, n_p, 1]
         :param state: Tensor[batch_size, state_len, d_model]
+        :param n_tau: int
         :return:      Tensor[batch_size, num_p, n_tau], Tensor[batch_size, max_len, vocab_size])
                       Tensor[batch_size, n]
                       Tensor[batch_size, 1, d_model]
@@ -91,22 +115,21 @@ class Model(nn.Module):
 
         # separate transformer output into two heads
         bert = self.softmax(self.bert_head(b))
-        b = self.gelu(self.critic_head(b.mean(dim=1)))
+        b = self.critic_head(b.mean(dim=1))
 
         # join alloc and ids
-        x = self.gelu(self.merge1(x * b))
+        x = self.merge1(x * b)
         x = x.view(batch_size, 1, self.d_model)
 
         # join alloc, ids, policy
         assert x.shape == (batch_size, 1, self.d_model)
         assert p.shape == (batch_size, n_p, self.d_model)
 
-        x = self.gelu(self.merge2(x * p))
+        x = self.merge2(x * p)
         x = x.unsqueeze(2)
 
         # pass in iqn
         x, taus = self.iqn(x, n_tau=n_tau)
-
         return (x, bert), taus, state
 
 
@@ -151,7 +174,7 @@ class IQN(nn.Module):
 
         return cos, taus
 
-    def forward(self, x, n_tau=8):
+    def forward(self, x, n_tau):
         """
         :param x:     Tensor[batch_size, num_p, 1, d_model]
         :param n_tau: int

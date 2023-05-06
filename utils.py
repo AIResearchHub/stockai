@@ -151,22 +151,23 @@ def read_context(tickers, mock_data):
         assert not c.isnull().values.any()
         context[ticker] = c
 
+    print(context)
+
     return context
 
 
 def get_context(contexts, tickers, date, max_text=1):
     """
+    :param contexts: pd.Dataframe
     :param date:     datetime.datetime
     :param tickers:  List[2]
     :param max_text: int
     :return:         List[501]
     """
+    time_string = (date - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
-    start = (date - pd.Timedelta(days=2)).strftime("%Y-%m-%d")
-    end = (date - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-
-    timeslice1 = contexts[tickers[0]][start:end]["Ids"]
-    timeslice2 = contexts[tickers[1]][start:end]["Ids"]
+    timeslice1 = contexts[tickers[0]][time_string:time_string]["Ids"]
+    timeslice2 = contexts[tickers[1]][time_string:time_string]["Ids"]
 
     sample1 = timeslice1.sample(n=min(len(timeslice1), max_text))
     sample2 = timeslice2.sample(n=min(len(timeslice2), max_text))
@@ -192,9 +193,10 @@ def get_context(contexts, tickers, date, max_text=1):
     return ids
 
 
-def mask_ids(ids, mask_prob=0.2):
+def mask_ids(ids, mask_prob):
     """
-    :param ids: [batch_size, length+n_step, max_len]
+    :param ids:       [batch_size, length+n_step, max_len]
+    :param mask_prob: probability of masking each word
     :return:
     """
 

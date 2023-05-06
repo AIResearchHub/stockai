@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 
 import torch.multiprocessing as mp
 import torch.distributed.rpc as rpc
@@ -25,7 +26,7 @@ from utils import read_context, get_context
 class Learner:
     epsilon = 1
     epsilon_min = 0.2
-    epsilon_decay = 0.00005
+    epsilon_decay = 0.0001
 
     lr = 1e-4
     gamma = 0.99
@@ -52,13 +53,14 @@ class Learner:
                  burnin_len,
                  rollout_len
                  ):
-        torch.manual_seed(0)
-        np.random.seed(0)
-        random.seed(0)
+        # torch.manual_seed(0)
+        # np.random.seed(0)
+        # random.seed(0)
 
         self.buffer_size = buffer_size
         self.batch_size = batch_size
         self.n_accumulate = n_accumulate
+        self.tickers = tickers
 
         self.d_model = d_model
         self.state_len = state_len
@@ -90,9 +92,9 @@ class Learner:
         self.hard_update(self.eval_model, self.model)
 
         # send to cuda and wrap in DataParallel
-        self.model = nn.DataParallel(self.model.cuda())
-        self.target_model = nn.DataParallel(self.target_model.cuda())
-        self.eval_model = nn.DataParallel(self.eval_model.cuda())
+        self.model = nn.DataParallel(self.model).cuda()
+        self.target_model = nn.DataParallel(self.target_model).cuda()
+        self.eval_model = nn.DataParallel(self.eval_model).cuda()
 
         # set model modes
         self.model.train()
@@ -132,7 +134,6 @@ class Learner:
 
         # params, batched_data (feeds batch), pending_rpcs (answer calls)
         self.batch_data = []
-        self.pending_rpc = None
 
         # start replay buffer
         self.replay_buffer = ReplayBuffer(buffer_size=buffer_size,
@@ -149,12 +150,16 @@ class Learner:
                                           )
 
         # start actors
-        self.future = Future()
+        self.future1 = Future()
+        self.future2 = Future()
+
+        self.pending_rpc = None
+        self.await_rpc = False
 
         self.actor_rref = self.spawn_actor(learner_rref=RRef(self),
-                                           tickers=tickers,
-                                           d_model=d_model,
-                                           state_len=state_len
+                                           tickers=self.tickers,
+                                           d_model=self.d_model,
+                                           state_len=self.state_len
                                            )
 
     @staticmethod
@@ -180,16 +185,19 @@ class Learner:
         """
         :return: Future().wait()
         """
-        self.future = self.future.then(lambda f: f.wait())
+        future = self.future1.then(lambda f: f.wait())
         with self.lock:
             self.pending_rpc = args
 
-        return self.future
+        return future
 
     @async_execution
     def return_episode(self, episode):
+        future = self.future2.then(lambda f: f.wait())
         self.sample_queue.put(episode)
-        return Future()
+        self.await_rpc = True
+
+        return future
 
     def get_policy(self, x, state):
         """
@@ -209,7 +217,7 @@ class Learner:
         with self.lock_model:
             with torch.no_grad():
                 (critic_values, _), _, state = self.eval_model.forward(
-                    (x, self.actions.repeat(1, 1, 1).cuda()),
+                    (x, self.actions.repeat(1, 1, 1)),
                     state=state,
                     n_tau=self.n_tau
                 )
@@ -257,15 +265,22 @@ class Learner:
             time.sleep(0.0001)
 
             with self.lock:
-                if self.pending_rpc is None:
-                    continue
 
-                else:
+                # clear self.future2 (store episodes)
+                if self.await_rpc:
+                    self.await_rpc = False
+
+                    future = self.future2
+                    self.future2 = Future()
+                    future.set_result(None)
+
+                # clear self.future1 (answer requests)
+                if self.pending_rpc is not None:
                     action, state = self.get_action(*self.pending_rpc)
                     self.pending_rpc = None
 
-                    future = self.future
-                    self.future = Future()
+                    future = self.future1
+                    self.future1 = Future()
                     future.set_result((action, state))
 
     def prepare_data(self):
@@ -334,11 +349,12 @@ class Learner:
         """
         :param allocs:       [block_len+n_step, batch_size*n_accumulate, 1]
         :param ids:          [block_len+n_step, batch_size*n_accumulate, 501]
-        :param actions:      [block_len+n_step, batch_size*n_accumulate, 1]
+        :param actions:      [block_len+n_step, batch_size*n_accumulate, 1, 1]
         :param rewards:      [block_len, batch_size*n_accumulate, 1]
         :param bert_targets: [block_len+n_step, batch_size*n_accumulate, 1]
         :param states:       [batch_size*n_accumulate, state_len, d_model]
         """
+
         loss, bert_loss = 0, 0
         new_states = []
         grads = [torch.zeros(x.shape).cuda() for x in self.model.parameters()]
@@ -408,13 +424,14 @@ class Learner:
 
                 next_q_values.append(next_q_values_)
 
+            assert self.gamma == 0.99
             targets = rewards[self.burnin_len:] + self.gamma * torch.stack(next_q_values)
             targets = targets.view(self.rollout_len, self.batch_size, 1, self.n_tau)
 
         self.model.zero_grad()
 
+        save_grad = torch.zeros(self.batch_size, self.state_len, self.d_model).cuda()
         loss, bert_loss = 0, 0
-        save_grad = torch.zeros(state.shape).cuda()
 
         intervals = list(range(self.burnin_len, self.block_len))
         for ckpt in reversed(intervals):
@@ -431,12 +448,14 @@ class Learner:
             target = targets[ckpt-self.burnin_len].view(self.batch_size, 1, self.n_tau)
             expected = expected.view(self.batch_size, self.n_tau, 1)
             taus = taus.view(self.batch_size, self.n_tau, 1)
+
             bert_target = bert_targets[ckpt]
             bert_expected = bert_expected.transpose(1, 2)
 
             loss_ = self.quantile_loss(expected, target, taus)
             torch.autograd.backward([loss_, state], [None, save_grad])
             bert_loss_ = torch.tensor(0.)
+
             # loss_, bert_loss_, ckpt_state = self.get_gradients_step(expected=expected,
             #                                                         target=target,
             #                                                         taus=taus,
@@ -567,8 +586,6 @@ class Learner:
         quantile_loss = abs(taus - (td_error.detach() < 0).float()) * huber_loss
 
         critic_loss = quantile_loss.sum(dim=1).mean(dim=1)
-        assert critic_loss.shape == (self.batch_size,)
-
         critic_loss = critic_loss.mean()
 
         return critic_loss

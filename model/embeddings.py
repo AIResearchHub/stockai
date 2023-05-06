@@ -4,6 +4,41 @@ import torch
 import torch.nn as nn
 
 
+class PositionalEncoding(nn.Module):
+    """
+    compute sinusoid encoding.
+    """
+    def __init__(self, d_model, max_len):
+        """
+        constructor of sinusoid encoding class
+
+        :param d_model: dimension of model
+        :param max_len: max sequence length
+        :param device: hardware device setting
+        """
+        super(PositionalEncoding, self).__init__()
+
+        # same size with input matrix (for adding with input matrix)
+        self.encoding = torch.zeros(max_len, d_model).cuda()
+        self.encoding.requires_grad = False  # we don't need to compute gradient
+
+        pos = torch.arange(0, max_len).cuda()
+        pos = pos.float().unsqueeze(dim=1)
+        # 1D => 2D unsqueeze to represent word's position
+
+        _2i = torch.arange(0, d_model, step=2).cuda().float()
+        # 'i' means index of d_model (e.g. embedding size = 50, 'i' = [0,50])
+        # "step=2" means 'i' multiplied with two (same with 2 * i)
+
+        self.encoding[:, 0::2] = torch.sin(pos / (10000 ** (_2i / d_model)))
+        self.encoding[:, 1::2] = torch.cos(pos / (10000 ** (_2i / d_model)))
+        # compute positional encoding to consider positional information of words
+
+    def forward(self, x):
+        batch_size, seq_len, d_model = x.size()
+        return self.encoding[:seq_len, :]
+
+
 class LearnedPositionalEncoding(nn.Module):
     """
     Learned Positional Embedding
@@ -45,7 +80,8 @@ class TransformerEmbedding(nn.Module):
     def __init__(self, vocab_size, d_model, max_len):
         super(TransformerEmbedding, self).__init__()
         self.tok_emb = TokenEmbedding(vocab_size, d_model)
-        self.pos_emb = LearnedPositionalEncoding(d_model, max_len)
+        self.pos_emb = PositionalEncoding(d_model, max_len)
+        # self.pos_emb = LearnedPositionalEncoding(d_model, max_len)
 
     def forward(self, x):
         """
@@ -55,3 +91,4 @@ class TransformerEmbedding(nn.Module):
         token_emb = self.tok_emb(x)
         pos_emb = self.pos_emb(token_emb)
         return token_emb + pos_emb
+

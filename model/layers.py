@@ -16,16 +16,16 @@ class AttentionLayer(nn.Module):
     def __init__(self, d_model, ffn_hidden, n_head, p):
         super(AttentionLayer, self).__init__()
         self.attention = Attention(d_model=d_model, n_head=n_head)
-        self.norm1 = LayerNorm(d_model)
+        self.norm1 = nn.LayerNorm(d_model)
         self.dropout1 = nn.Dropout(p=p)
 
         self.ffn = FeedForward(dim=d_model, inner_dim=ffn_hidden)
-        self.norm2 = LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
         self.dropout2 = nn.Dropout(p=p)
 
     def forward(self, x, src_mask=None):
         _x = x
-        x = self.attention(q=x, kv=x, mask=src_mask)
+        x = self.attention(q=x, k=x, v=x, mask=src_mask)
 
         x = self.norm1(x + _x)
         x = self.dropout1(x)
@@ -43,11 +43,11 @@ class RecurrentAttentionLayer(nn.Module):
     """
     A recurrent transformer layer from block-recurrent transformer
     """
-    def __init__(self, d_model, ffn_hidden, n_head, p, max_len=512, qk_rmsnorm_scale=8):
+    def __init__(self, d_model, ffn_hidden, n_head, p, max_len=512):
         super(RecurrentAttentionLayer, self).__init__()
 
         # learned ids
-        self.state_norm = LayerNorm(d_model)
+        self.state_norm = nn.LayerNorm(d_model)
         self.state_ids = LearnedPositionalEncoding(d_model=d_model, max_len=max_len)
 
         # attention
@@ -55,7 +55,6 @@ class RecurrentAttentionLayer(nn.Module):
 
         # forget gates
         self.proj_gate = FixedGate(d_model)
-        self.ff_gate = FixedGate(d_model)
 
         # linear projection
         self.x_proj = nn.Linear(2 * d_model, d_model)
@@ -69,10 +68,9 @@ class RecurrentAttentionLayer(nn.Module):
         _x = x
         _s = s
 
-        s = self.state_norm(s)
-        s = s + self.state_ids(s)
+        s = self.state_norm(s) + self.state_ids(s)
 
-        x_proj, s_proj = self.attention(qx=x, kvx=x, qs=s, kvs=s)
+        x_proj, s_proj = self.attention(qx=x, kx=x, vx=x, qs=s, ks=s, vs=s)
 
         # finish computing out
         x_residual = x_proj + _x
@@ -82,12 +80,6 @@ class RecurrentAttentionLayer(nn.Module):
         next_s = self.proj_gate(s_proj, _s)
 
         return out, next_s
-
-
-class GEGLU(nn.Module):
-    def forward(self, x):
-        x, gate = x.chunk(2, dim = -1)
-        return F.gelu(gate) * x
 
 
 class FeedForward(nn.Module):
@@ -103,10 +95,9 @@ class FeedForward(nn.Module):
         super(FeedForward, self).__init__()
 
         self.ff = nn.Sequential(
-            LayerNorm(dim),
-            nn.Linear(dim, inner_dim * 2, bias=False),
-            GEGLU(),
-            nn.Linear(inner_dim, dim, bias=False)
+            nn.Linear(dim, inner_dim),
+            nn.GELU(),
+            nn.Linear(inner_dim, dim)
         )
 
     def forward(self, x):
@@ -126,13 +117,3 @@ class FixedGate(nn.Module):
         z = self.proj(x)
         g = torch.sigmoid(self.bias)
         return torch.mul(state, g) + torch.mul(z, 1-g)
-
-
-class LayerNorm(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.gamma = nn.Parameter(torch.ones(dim))
-        self.register_buffer("beta", torch.zeros(dim))
-
-    def forward(self, x):
-        return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)

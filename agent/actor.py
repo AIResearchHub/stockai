@@ -15,7 +15,7 @@ class Actor:
                  d_model,
                  state_len
                  ):
-        np.random.seed(0)
+        # np.random.seed(0)
 
         self.learner_rref = learner_rref
 
@@ -24,7 +24,7 @@ class Actor:
 
         self.env = Env(tickers=tickers,
                        render=True,
-                       start="2020-01-01",  # 2010
+                       start="2020-11-01",  # 2010
                        end="2021-01-01",
                        repeat=1
                        )
@@ -54,13 +54,14 @@ class Actor:
         """
         sends completed episode back to learner
         """
-        self.learner_rref.rpc_async().return_episode(episode)
+        future_await = self.learner_rref.rpc_async().return_episode(episode)
+        return future_await
 
     def run(self):
 
         while True:
             (alloc, timestamp), total_reward, done, tickers = self.env.reset()
-            state = np.zeros((1, self.state_len, self.d_model), dtype=np.float32)
+            state = np.random.randn(1, self.state_len, self.d_model)
 
             start = time.time()
             while not done:
@@ -78,6 +79,6 @@ class Actor:
 
             total_reward = self.env.normalize_reward(total_reward)
             episode = self.local_buffer.finish(tickers, total_reward, time.time()-start)
-            self.return_episode(episode)
+            self.return_episode(episode).wait()
 
             self.env.render_episode()

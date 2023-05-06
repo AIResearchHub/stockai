@@ -130,7 +130,7 @@ if __name__ == "__main__":
          batch_size=32,
          n_accumulate=1,
          vocab_size=30522,
-         n_layers=6,
+         n_layers=4,
          d_model=768,
          n_head=8,
          state_len=1,

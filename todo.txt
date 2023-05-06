@@ -4,31 +4,27 @@
 
 - fix error
 
-- make it reproducible (added seeds for learner and actor)
+- make it reproducible (added seeds for learner and actor) # commented out
+
+- reorganize everything
+    (change mask_prob back to 0.20)
+    (reverse load pretrained embeddings)
+    (reverse get_gradients)
+
 
 TODO:
 
-- debug (today)
 
-- batched actor (for inference and multiple env) (today)
+- reorganize everything (today)
+
+    (check all hyper-parameters)
+    (reverse get_context)
+    (reverse env prices)
+
+    (consider add improvements from lucidrains)
+    (compare with gelu and without gelu for transformer output)
+
+- batched actor with varying epsilon (for inference and multiple env) (today)
 
 - start main training (today)
-
-
-
-
-
-
-
-
-- investigate how epsilon and random action slows learning (bug is not epsilon)
-
-    (if model is determined to get alloc to 1, then random action wont do anything
-     since any changes will be negated by model and alloc will still be 1)
-
-    (problem can be solved with batched env, where each env has different epsilon)
-
-    (if epsilon works, then batched env with variable epsilon is a requirement)
-
-    (possible explanation for why loss goes up as model tries different allocs, forcing critic distribution to widen)
 

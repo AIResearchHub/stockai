@@ -68,7 +68,8 @@ class ReplayBuffer:
         self.batch_queue = batch_queue
         self.priority_queue = priority_queue
 
-        self.buffer = np.empty(shape=(buffer_size,), dtype=object)
+        self.buffer = [None] * buffer_size
+        # self.buffer = np.empty(shape=(buffer_size,), dtype=object)
 
         self.logger = Logger()
 
@@ -165,7 +166,7 @@ class ReplayBuffer:
 
             for _ in range(self.batch_size):
                 buffer_idx = random.randrange(0, self.size)
-                time_idx = random.randrange(0, self.buffer[buffer_idx].length-self.n_step-self.block_len)
+                time_idx = random.randrange(0, self.buffer[buffer_idx].length-self.n_step-self.block_len+1)
                 idxs.append([buffer_idx, time_idx])
 
                 ids.append([
@@ -182,7 +183,7 @@ class ReplayBuffer:
                 actions.append(self.buffer[buffer_idx].actions[time_idx:time_idx+self.block_len+self.n_step])
                 states.append(self.buffer[buffer_idx].states[time_idx])
 
-            ids, bert_targets = mask_ids(ids, mask_prob=0.0)
+            ids, bert_targets = mask_ids(ids, mask_prob=0.00)
 
             allocs = torch.tensor(np.stack(allocs)).view(self.batch_size, self.block_len+self.n_step, 1)
             ids = torch.tensor(np.stack(ids)).view(self.batch_size, self.block_len+self.n_step, 501)

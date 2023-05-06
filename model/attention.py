@@ -46,18 +46,26 @@ class Attention(nn.Module):
         self.n_head = n_head
         self.attention = ScaledDotProductAttention()
 
-        self.w_q = nn.Linear(d_model, d_model, bias=False)
-        self.w_kv = nn.Linear(d_model, 2 * (d_model // n_head), bias=False)
-        self.w_concat = nn.Linear(d_model, d_model, bias=False)
+        self.w_q = nn.Linear(d_model, d_model)
+        self.w_k = nn.Linear(d_model, d_model)
+        self.w_v = nn.Linear(d_model, d_model)
+        self.w_concat = nn.Linear(d_model, d_model)
 
-    def forward(self, q, kv, mask=None):
+        # self.w_q = nn.Linear(d_model, d_model, bias=False)
+        # self.w_kv = nn.Linear(d_model, 2 * (d_model // n_head), bias=False)
+        # self.w_concat = nn.Linear(d_model, d_model, bias=False)
+
+    def forward(self, q, k, v, mask=None):
         """
         :param   q:     [batch_size, length, d_model]
         :param   kv:    [batch_size, length, d_model]
         :return: out:   [batch_size, length, d_model]
         """
-        q, k, v = self.w_q(q), *self.w_kv(kv).chunk(2, dim=-1)
-        q, k, v = self.split(q), k.unsqueeze(1), v.unsqueeze(1)
+        q, k, v = self.w_q(q), self.w_k(k), self.w_v(v)
+        q, k, v = self.split(q), self.split(k), self.split(v)
+
+        # q, k, v = self.w_q(q), *self.w_kv(kv).chunk(2, dim=-1)
+        # q, k, v = self.split(q), k.unsqueeze(1), v.unsqueeze(1)
 
         out, attention = self.attention(q, k, v, mask=mask)
 
@@ -105,29 +113,43 @@ class RecurrentAttention(nn.Module):
         self.attention = ScaledDotProductAttention()
 
         # get q, k, v for x and state
-        self.w_qx1 = nn.Linear(d_model, d_model, bias=False)
-        self.w_qs1 = nn.Linear(d_model, d_model, bias=False)
-        self.w_qx2 = nn.Linear(d_model, d_model, bias=False)
-        self.w_qs2 = nn.Linear(d_model, d_model, bias=False)
 
-        self.w_kvx = nn.Linear(d_model, 2 * (d_model // n_head), bias=False)
-        self.w_kvs = nn.Linear(d_model, 2 * (d_model // n_head), bias=False)
+        self.w_qx1 = nn.Linear(d_model, d_model)
+        self.w_qs1 = nn.Linear(d_model, d_model)
+        self.w_qx2 = nn.Linear(d_model, d_model)
+        self.w_qs2 = nn.Linear(d_model, d_model)
+
+        self.w_kx = nn.Linear(d_model, d_model)
+        self.w_ks = nn.Linear(d_model, d_model)
+        self.w_vx = nn.Linear(d_model, d_model)
+        self.w_vs = nn.Linear(d_model, d_model)
+
+        # self.w_qx1 = nn.Linear(d_model, d_model, bias=False)
+        # self.w_qs1 = nn.Linear(d_model, d_model, bias=False)
+        # self.w_qx2 = nn.Linear(d_model, d_model, bias=False)
+        # self.w_qs2 = nn.Linear(d_model, d_model, bias=False)
+        #
+        # self.w_kvx = nn.Linear(d_model, 2 * (d_model // n_head), bias=False)
+        # self.w_kvs = nn.Linear(d_model, 2 * (d_model // n_head), bias=False)
 
         # linear projection
         self.x_proj = nn.Linear(2 * d_model, d_model)
         self.s_proj = nn.Linear(2 * d_model, d_model)
 
-    def forward(self, qx, kvx, qs, kvs, mask=None):
+    def forward(self, qx, kx, vx, qs, ks, vs, mask=None):
         # compute 4 distinct queries
         qx1, qs1, qx2, qs2 = self.w_qx1(qx), self.w_qs1(qs), self.w_qx2(qx), self.w_qs2(qs)
         qx1, qs1, qx2, qs2 = self.split(qx1), self.split(qs1), self.split(qx2), self.split(qs2)
 
         # compute shared keys and values
-        kx, vx = self.w_kvx(kvx).chunk(2, dim=-1)
-        kx, vx = kx.unsqueeze(1), vx.unsqueeze(1)
+        kx, vx, ks, vs = self.w_kx(kx), self.w_vx(vx), self.w_ks(ks), self.w_vs(vs)
+        kx, vx, ks, vs = self.split(kx), self.split(vx), self.split(ks), self.split(vs)
 
-        ks, vs = self.w_kvs(kvs).chunk(2, dim=-1)
-        ks, vs = ks.unsqueeze(1), vs.unsqueeze(1)
+        # kx, vx = self.w_kvx(kvx).chunk(2, dim=-1)
+        # kx, vx = kx.unsqueeze(1), vx.unsqueeze(1)
+        #
+        # ks, vs = self.w_kvs(kvs).chunk(2, dim=-1)
+        # ks, vs = ks.unsqueeze(1), vs.unsqueeze(1)
 
         # perform self attention and cross attention
         x, _ = self.attention(qx1, kx, vx, mask=mask)

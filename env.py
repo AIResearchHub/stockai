@@ -1,5 +1,6 @@
 
 
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -38,6 +39,26 @@ class Env:
                                   repeat=repeat
                                   )
 
+        # ----------------------------
+
+        self.prices["AAPL"] = 100 + np.arange(len(self.prices.index))
+        self.prices["AMZN"] = np.full(len(self.prices.index), fill_value=100)
+
+        print(self.prices)
+
+        self.temp_prices = self.prices.sample(n=2, axis='columns')
+        self.temp_prices = self.temp_prices.dropna()
+        while len(self.temp_prices) < 10:
+            self.temp_prices = self.prices.sample(n=2, axis='columns')
+            self.temp_prices = self.temp_prices.dropna()
+
+        self.temp_index = self.temp_prices.index.tolist()
+        self.temp_timesteps = len(self.temp_index)
+        self.temp_prices = self.temp_prices.reset_index(drop=True)
+        self.temp_tickers = self.temp_prices.columns.get_level_values(0).tolist()
+
+        # -----------------------------
+
         self.render = render
         if render:
             self.render_class = Render()
@@ -57,7 +78,8 @@ class Env:
         self.time = 0
         self.alloc = 0.5
 
-        if self.render: self.render_class.reset()
+        if self.render:
+            self.render_class.reset()
 
         return (self.alloc, self.temp_index[self.time]), 0, False, self.temp_tickers
 
@@ -77,7 +99,8 @@ class Env:
         # (alloc1 * change1) + (alloc2 * change2) = total change
         reward = (self.alloc * change[0]) + ((1-self.alloc) * change[1])
 
-        if self.render: self.render_class.step(reward, change[0], change[1])
+        if self.render:
+            self.render_class.step(reward, change[0], change[1])
 
         return (self.alloc, self.temp_index[self.time]), reward, False, self.temp_tickers
 
@@ -115,9 +138,9 @@ class Render:
     eq_c1 = 1
     eq_c2 = 1
 
-    rewards = [eq_r]
-    change1 = [eq_c1]
-    change2 = [eq_c2]
+    rewards = [1]
+    change1 = [1]
+    change2 = [1]
 
     def __init__(self):
         self.reset()
@@ -127,9 +150,9 @@ class Render:
         self.eq_c1 = 1
         self.eq_c2 = 1
 
-        self.rewards = [self.eq_r]
-        self.change1 = [self.eq_c1]
-        self.change2 = [self.eq_c2]
+        self.rewards = [1]
+        self.change1 = [1]
+        self.change2 = [1]
 
     def step(self, r, c1, c2):
         self.eq_r *= (r + 1)
