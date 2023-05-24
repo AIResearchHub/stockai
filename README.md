@@ -5,7 +5,7 @@
 Using simplified block recurrent transformer to predict stock prices from google news feed
 
 
-## Resources:
+## Papers that are implemented in this algorithm:
 
 
 Seed RL: https://arxiv.org/abs/1910.06591
