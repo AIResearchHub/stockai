@@ -2,7 +2,8 @@
 # Stock AI
 
 
-Using simplified block recurrent transformer to predict stock prices from google news feed
+Using Natural Language Processing and Reinforcement Learning to predict stock prices from 
+google news feed using techniques from many state of the art papers
 
 
 ## Papers implemented in this algorithm
