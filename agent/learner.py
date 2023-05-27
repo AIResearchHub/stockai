@@ -3,7 +3,6 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 
 import torch.multiprocessing as mp
 import torch.distributed.rpc as rpc
@@ -24,6 +23,10 @@ from utils import read_context, get_context
 
 
 class Learner:
+    """
+    Main class used to train the agent. Called by rpc remote.
+    Call run() to start the main training loop.
+    """
     epsilon = 1
     epsilon_min = 0.2
     epsilon_decay = 0.0001
@@ -165,6 +168,9 @@ class Learner:
     @staticmethod
     def spawn_actor(learner_rref, tickers, d_model, state_len):
         """
+        Start actor by calling actor.remote().run()
+        Actors communicate with learner through rpc and RRef
+
         :return: RRef()   - to reference the actor worker
         """
         actor_rref = rpc.remote("actor",
@@ -183,6 +189,8 @@ class Learner:
     @async_execution
     def queue_request(self, *args):
         """
+        Called by actor to queue requests
+
         :return: Future().wait()
         """
         future = self.future1.then(lambda f: f.wait())
@@ -193,6 +201,11 @@ class Learner:
 
     @async_execution
     def return_episode(self, episode):
+        """
+        Called by actor to return completed episodes
+
+        :return: Future().wait()
+        """
         future = self.future2.then(lambda f: f.wait())
         self.sample_queue.put(episode)
         self.await_rpc = True
@@ -296,6 +309,9 @@ class Learner:
                 self.batch_data.append(data)
 
     def run(self):
+        """
+        Main training loop.
+        """
         self.replay_buffer.start_threads()
 
         inference_thread = threading.Thread(target=self.answer_requests, daemon=True)
@@ -324,6 +340,8 @@ class Learner:
     def update(self, allocs, ids, actions, rewards, bert_targets, states, idxs):
         """
         An update step
+        Perform a training step, update new recurrent states,
+        soft update target model, transfer weights to eval model
         """
         loss, bert_loss, new_states = self.train_step(allocs=allocs.cuda(),
                                                       ids=ids.cuda(),
@@ -347,6 +365,9 @@ class Learner:
 
     def train_step(self, allocs, ids, actions, rewards, bert_targets, states):
         """
+        Accumulate gradients to increase batch size
+        Gradients are cached for self.n_accumulate steps before optimizer.step()
+
         :param allocs:       [block_len+n_step, batch_size*n_accumulate, 1]
         :param ids:          [block_len+n_step, batch_size*n_accumulate, 501]
         :param actions:      [block_len+n_step, batch_size*n_accumulate, 1, 1]
@@ -381,7 +402,7 @@ class Learner:
         for x, grad in zip(self.model.parameters(), grads):
             x.grad = grad / self.n_accumulate
 
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.1)
         self.optimizer.step()
 
         loss /= self.n_accumulate
@@ -394,6 +415,11 @@ class Learner:
         return loss, bert_loss, new_states
 
     def get_gradients(self, allocs, ids, actions, rewards, bert_targets, states):
+        """
+        Memory-Efficient BPTT see https://arxiv.org/abs/1606.03401
+        Overcoming memory limitations by caching gradients and chunking BPTT
+        into different backpropagaton steps
+        """
 
         # create critic targets and new states
         with torch.no_grad():
@@ -488,6 +514,13 @@ class Learner:
 
     def get_gradients_step(self, expected, target, taus, bert_expected, bert_target, state, save_grad, ckpt_state):
         """
+        Used concepts from PCGrad see https://arxiv.org/pdf/2001.06782.pdf
+        The idea is to do multi-task learning by treating gradients as vectors
+        and projecting then onto each other, thus removing conflicting directions
+        The idea is to train bert masked language modeling and critic for rl
+        at the same time to accelerate training by overcoming the small signal
+        from rl rewards with signal from masked language modeling
+
         :param expected       [batch_size, n_tau, 1]
         :param target         [batch_size, 1, n_tau]
         :param taus           [batch_size, n_tau, 1]
@@ -554,6 +587,10 @@ class Learner:
 
     @staticmethod
     def proj_grads(grad1, grad2):
+        """
+        See PCGrad: https://arxiv.org/pdf/2001.06782.pdf
+        Projecting u onto v and removing it if its in the opposite direction
+        """
         grad1_ = grad1.detach()
 
         # project grad1
@@ -570,6 +607,9 @@ class Learner:
 
     def quantile_loss(self, expected, target, taus):
         """
+        See IQN: https://arxiv.org/pdf/1806.06923.pdf
+        Training a distribution by viewing the target as a distribution and approximating it
+
         :param expected: Tensor[batch_size, n_tau, 1]
         :param target:   Tensor[batch_size, 1, n_tau]
         :param taus:     Tensor[batch_size, n_tau, 1]
@@ -592,6 +632,8 @@ class Learner:
 
     def bert_loss(self, expected, target):
         """
+        Standard bert masked language modeling loss
+
         :param expected: Tensor[batch_size, vocab_size, max_len]
         :param target  : Tensor[batch_size, max_len]
         :return: loss
@@ -613,6 +655,7 @@ class Learner:
 
     @staticmethod
     def soft_update(target, source, tau):
+        """Soft weight updates: target slowly track the weights of source with constant tau"""
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(
                 target_param.data * (1.0 - tau) + param.data * tau
@@ -620,5 +663,6 @@ class Learner:
 
     @staticmethod
     def hard_update(target, source):
+        """Copy weights from source to target"""
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(param.data)

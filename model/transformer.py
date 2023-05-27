@@ -11,6 +11,9 @@ from block_recurrent_transformer_pytorch import BlockRecurrentTransformer \
 
 
 class Transformer(nn.Module):
+    """
+    A standard Transformer module
+    """
 
     def __init__(self,
                  vocab_size,
@@ -50,6 +53,11 @@ class Transformer(nn.Module):
 
 
 class BlockRecurrentTransformer(nn.Module):
+    """
+    A simplified implementation of BlockRecurrentTransformer see
+    https://arxiv.org/pdf/2203.07852.pdf
+    without the transformer xl memory and cache
+    """
 
     def __init__(self,
                  vocab_size,
@@ -160,7 +168,9 @@ class BlockRecurrentTransformer(nn.Module):
 
 class BlockBERTlucidrains(nn.Module):
     """
-    lucidrains' block recurrent transformer
+    lucidrains' block recurrent transformer taken from
+    https://github.com/lucidrains/block-recurrent-transformer-pytorch
+    many features are removed for simplicity
     """
 
     def __init__(self,

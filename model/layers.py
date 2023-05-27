@@ -85,6 +85,7 @@ class RecurrentAttentionLayer(nn.Module):
 class FeedForward(nn.Module):
     """
     Sequential(
+        LayerNorm(dim)
         Linear(dim, inner_dim)
         GELU()
         Linear(inner_dim, dim)
@@ -95,6 +96,7 @@ class FeedForward(nn.Module):
         super(FeedForward, self).__init__()
 
         self.ff = nn.Sequential(
+            nn.LayerNorm(dim),
             nn.Linear(dim, inner_dim),
             nn.GELU(),
             nn.Linear(inner_dim, dim)
@@ -108,7 +110,7 @@ class FixedGate(nn.Module):
     """
     Fixed Gate for block-recurrent transformer
     """
-    def __init__(self, dim: int):
+    def __init__(self, dim):
         super().__init__()
         self.proj = nn.Linear(dim, dim, bias=True)
         self.bias = nn.Parameter(torch.randn(dim), requires_grad=True)

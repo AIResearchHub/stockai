@@ -40,23 +40,23 @@ class Env:
                                   )
 
         # ----------------------------
-
-        self.prices["AAPL"] = 100 + np.arange(len(self.prices.index))
-        self.prices["AMZN"] = np.full(len(self.prices.index), fill_value=100)
-
-        print(self.prices)
-
-        self.temp_prices = self.prices.sample(n=2, axis='columns')
-        self.temp_prices = self.temp_prices.dropna()
-        while len(self.temp_prices) < 10:
-            self.temp_prices = self.prices.sample(n=2, axis='columns')
-            self.temp_prices = self.temp_prices.dropna()
-
-        self.temp_index = self.temp_prices.index.tolist()
-        self.temp_timesteps = len(self.temp_index)
-        self.temp_prices = self.temp_prices.reset_index(drop=True)
-        self.temp_tickers = self.temp_prices.columns.get_level_values(0).tolist()
-
+        #
+        # self.prices["AAPL"] = 100 + np.arange(len(self.prices.index))
+        # self.prices["AMZN"] = np.full(len(self.prices.index), fill_value=100)
+        #
+        # print(self.prices)
+        #
+        # self.temp_prices = self.prices.sample(n=2, axis='columns')
+        # self.temp_prices = self.temp_prices.dropna()
+        # while len(self.temp_prices) < 10:
+        #     self.temp_prices = self.prices.sample(n=2, axis='columns')
+        #     self.temp_prices = self.temp_prices.dropna()
+        #
+        # self.temp_index = self.temp_prices.index.tolist()
+        # self.temp_timesteps = len(self.temp_index)
+        # self.temp_prices = self.temp_prices.reset_index(drop=True)
+        # self.temp_tickers = self.temp_prices.columns.get_level_values(0).tolist()
+        #
         # -----------------------------
 
         self.render = render

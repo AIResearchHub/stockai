@@ -12,6 +12,9 @@ from utils import get_context, mask_ids
 
 @dataclass
 class Episode:
+    """
+    Episode dataclass used to store completed episodes from actor
+    """
     tickers: np.array
     allocs: np.array
     timestamps: np.array
@@ -25,6 +28,9 @@ class Episode:
 
 @dataclass
 class Block:
+    """
+    Block dataclass used to store preprocessed batches for training
+    """
     allocs: torch.tensor
     ids: torch.tensor
     actions: torch.tensor
@@ -35,6 +41,11 @@ class Block:
 
 
 class ReplayBuffer:
+    """
+    Replay Buffer will be used inside Learner where start_threads is called
+    before the main training the loop. The Learner will asynchronously queue
+    Episodes into the buffer, log the data, and prepare Block for training.
+    """
 
     def __init__(self,
                  buffer_size,
@@ -183,7 +194,7 @@ class ReplayBuffer:
                 actions.append(self.buffer[buffer_idx].actions[time_idx:time_idx+self.block_len+self.n_step])
                 states.append(self.buffer[buffer_idx].states[time_idx])
 
-            ids, bert_targets = mask_ids(ids, mask_prob=0.00)
+            ids, bert_targets = mask_ids(ids, mask_prob=0.20)
 
             allocs = torch.tensor(np.stack(allocs)).view(self.batch_size, self.block_len+self.n_step, 1)
             ids = torch.tensor(np.stack(ids)).view(self.batch_size, self.block_len+self.n_step, 501)
@@ -251,6 +262,10 @@ class ReplayBuffer:
 
 
 class LocalBuffer:
+    """
+    Used by Actor to store data. Once the episode is finished
+    finish() to return Episode to Learner to store in ReplayBuffer
+    """
 
     def __init__(self):
         self.alloc_buffer = []

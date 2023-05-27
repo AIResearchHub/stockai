@@ -163,7 +163,19 @@ def get_context(contexts, tickers, date, max_text=1):
     :param tickers:  List[2]
     :param max_text: int
     :return:         List[501]
+
+    "Next"  = 2279
+    "[CLS]" = 101
+    "[SEP]" = 102
     """
+
+    # if tickers[0] == "AAPL":
+    #     ids = ([0] * 250) + [102] + ([1] * 250)
+    # else:
+    #     ids = ([1] * 250) + [102] + ([0] * 250)
+    #
+    # return ids
+
     time_string = (date - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
     timeslice1 = contexts[tickers[0]][time_string:time_string]["Ids"]
@@ -171,10 +183,6 @@ def get_context(contexts, tickers, date, max_text=1):
 
     sample1 = timeslice1.sample(n=min(len(timeslice1), max_text))
     sample2 = timeslice2.sample(n=min(len(timeslice2), max_text))
-
-    # "Next" = 2279
-    # "[CLS]" = 101
-    # "[SEP]" = 102
 
     ids = []
 

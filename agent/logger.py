@@ -21,6 +21,9 @@ class Logger:
         self.start = time.time()
 
     def print(self):
+        """
+        Called asynchronously by ReplayBuffer to prints logs and store data in logs directory
+        """
         elapsed_time = time.time() - self.start
 
         if self.loss != 0 or self.bert_loss != 0:
@@ -33,8 +36,8 @@ class Logger:
                                                                   self.epsilon))
             self.file.flush()
 
-        print('Elapsed: {:>8.4f}  '
-              'Updates: {:>8}  '
+        print('Elapsed: {:>8.4f} '
+              'Updates: {:>8} '
               'Frames: {:>8} '
               'Loss: {:>10.8f} '
               'BertLoss: {:>10.8f} '

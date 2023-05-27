@@ -9,9 +9,15 @@ from .transformer import Transformer, BlockRecurrentTransformer, BlockBERTlucidr
 
 
 class Model(nn.Module):
+    """
+    A BlockRecurrentTransformer module followed by a IQN Module
+    The self.transformer does all the heavy work while the
+    self.iqn uses the output embedding to create a q value distribution
+    """
 
     def __init__(self,
                  vocab_size=30522,
+                 max_len=512,
                  n_layers=4,
                  d_model=512,
                  n_head=8,
@@ -30,20 +36,21 @@ class Model(nn.Module):
         self.merge2 = nn.Linear(d_model, d_model)
 
         # transformer
-        # self.transformer = Transformer(
-        #     vocab_size=vocab_size,
-        #     n_layers=n_layers,
-        #     d_model=d_model,
-        #     n_head=n_head,
-        #     p=p
-        # )
-        self.transformer = BlockRecurrentTransformer(
+        self.transformer = Transformer(
             vocab_size=vocab_size,
             n_layers=n_layers,
             d_model=d_model,
             n_head=n_head,
             p=p
         )
+        # self.transformer = BlockRecurrentTransformer(
+        #     vocab_size=vocab_size,
+        #     max_len=max_len,
+        #     n_layers=n_layers,
+        #     d_model=d_model,
+        #     n_head=n_head,
+        #     p=p
+        # )
         # self.transformer = BlockBERTlucidrains(
         #     vocab_size=vocab_size,
         #     n_layers=n_layers,
@@ -83,6 +90,8 @@ class Model(nn.Module):
 
     def state_forward(self, ids, state):
         """
+        returns the next recurrent state without computing output
+
         :param ids:   Tensor[batch_size, length]
         :param state: Tensor[batch_size, state_len, d_model]
         :return:      Tensor[batch_size, state_len, d_model]
@@ -135,7 +144,10 @@ class Model(nn.Module):
 
 class IQN(nn.Module):
     """
-    Implicit Quantile Network
+    Implicit Quantile Network see https://arxiv.org/pdf/1806.06923.pdf
+    This model outputs a q value distribution instead of a scalar
+    And is trained using quantile loss to predict the value at each
+    percentile of the distribution
     """
 
     def __init__(self,
