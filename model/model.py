@@ -11,8 +11,16 @@ from .transformer import Transformer, BlockRecurrentTransformer, BlockBERTlucidr
 class Model(nn.Module):
     """
     A BlockRecurrentTransformer module followed by a IQN Module
-    The self.transformer does all the heavy work while the
-    self.iqn uses the output embedding to create a q value distribution
+    The Transformer does all the heavy work while the
+    IQN uses the output embedding to create a q value distribution
+
+    Parameters:
+    vocab_size (int): vocabulary size of the transformer
+    max_len (int): max length of the transformer
+    n_layers (int): number of layers in transformer
+    n_head (int): number of attention heads in transformer
+    p (float): dropout probability in transformer
+    n_cos (int): number of cosine samples for each tau in IQN
     """
 
     def __init__(self,
@@ -38,6 +46,7 @@ class Model(nn.Module):
         # transformer
         self.transformer = Transformer(
             vocab_size=vocab_size,
+            max_len=max_len,
             n_layers=n_layers,
             d_model=d_model,
             n_head=n_head,
@@ -84,29 +93,42 @@ class Model(nn.Module):
 
     def init_state(self, batch_size=1, state_len=1):
         """
-        :return:      Tensor[batch_size, state_len, d_model]
+        Return initialized recurrent state
+
+        Returns:
+        init_state (Tensor[batch_size, state_len, d_model]): either zeros, random normal or learned parameters
         """
         return self.transformer.init_state(batch_size, state_len)
 
     def state_forward(self, ids, state):
         """
-        returns the next recurrent state without computing output
+        Returns the next recurrent state without computing output,
+        saves compute by not passing through remaining transformer layers
+        and IQN
 
-        :param ids:   Tensor[batch_size, length]
-        :param state: Tensor[batch_size, state_len, d_model]
-        :return:      Tensor[batch_size, state_len, d_model]
+        Parameters:
+        ids (Tensor[batch_size, length]): tokens
+        state (Tensor[batch_size, state_len, d_model]): recurrent state
+
+        Returns:
+        state (Tensor[batch_size, state_len, d_model]): next recurrent state
+
         """
         return self.transformer.state_forward(ids, state)
 
     def forward(self, xp, state, n_tau):
         """
-        :param xp:    Tensor[batch_size, length]
-                      Tensor[batch_size, n_p, 1]
-        :param state: Tensor[batch_size, state_len, d_model]
-        :param n_tau: int
-        :return:      Tensor[batch_size, num_p, n_tau], Tensor[batch_size, max_len, vocab_size])
-                      Tensor[batch_size, n]
-                      Tensor[batch_size, 1, d_model]
+
+        Parameters:
+        xp (Tensor[batch_size, length], Tensor[batch_size, n_p, 1]): tokens and policy
+        state (Tensor[batch_size, state_len, d_model]): recurrent state
+        n_tau (int): number of tau samples to approximate distribution
+
+        Returns:
+        (x, bert) (Tensor[batch_size, num_p, n_tau], Tensor[batch_size, max_len, vocab_size]): critic output and bert output
+        taus (Tensor[batch_size, n]): tau values for the distribution, representing percentile in distribution
+        state (Tensor[batch_size, state_len, d_model]): next recurrent state
+
         """
 
         # x = allocs
@@ -147,7 +169,12 @@ class IQN(nn.Module):
     Implicit Quantile Network see https://arxiv.org/pdf/1806.06923.pdf
     This model outputs a q value distribution instead of a scalar
     And is trained using quantile loss to predict the value at each
-    percentile of the distribution
+    percentile of the distribution, designed to approximate distribution
+    from output representation of a backbone model
+
+    Parameters:
+    d_model (int): The dimension of the model
+    n_cos (int): Number of cosine samples for each tau
     """
 
     def __init__(self,
@@ -170,6 +197,13 @@ class IQN(nn.Module):
     def calc_cos(self, batch_size, n_tau=8):
         """
         Calculating the co-sin values depending on the number of tau samples
+
+        Parameters:
+        batch_size (int): batch size
+
+        Returns:
+        cos (Tensor[batch_size, n_tau, d_model]): cosine values to be bitwise multiplied with output representation
+        taus (Tensor[batch_size, n_tau]): tau values associated with each cosine representation
         """
         assert torch.equal(self.pis,
                            torch.FloatTensor([np.pi*i for i in range(1, self.n_cos+1)]).view(1, 1, self.n_cos).cuda())
@@ -188,10 +222,16 @@ class IQN(nn.Module):
 
     def forward(self, x, n_tau):
         """
-        :param x:     Tensor[batch_size, num_p, 1, d_model]
-        :param n_tau: int
-        :return:      Tensor[batch_size, num_p, n_tau]
-                      Tensor[batch_size, n_tau, 1]
+        Additional axis to incorporate multiple policy values
+
+        Parameters:
+        x (Tensor[batch_size, n_p, 1, d_model]): output representation of backbone model
+        n_tau (int): Number of tau samples
+
+        Returns:
+        x (Tensor[batch_size, n_p, n_tau]): output distribution
+        taus (Tensor[batch_size, n_p, n_tau]): tau samples associated with each distribution
+
         """
         batch_size = x.size(0)
         n_p = x.size(1)

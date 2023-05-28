@@ -45,6 +45,20 @@ class ReplayBuffer:
     Replay Buffer will be used inside Learner where start_threads is called
     before the main training the loop. The Learner will asynchronously queue
     Episodes into the buffer, log the data, and prepare Block for training.
+
+    Parameters:
+    buffer_size (int): Size of self.buffer
+    batch_size (int): Training batch size
+    block_len (int): Time step length of blocks
+    d_model (int): Dimension of model
+    state_len (int): Length of recurrent state
+    n_step (int): N step returns
+    gamma (float): gamma constant for next q in q learning
+    contexts (dict): dictionary for each ticker with Dataframe of news tokens for each time step
+    sample_queue (mp.Queue): FIFO queue to store Episode into ReplayBuffer
+    batch_queue (mp.Queue): FIFO queue to sample batches for training from ReplayBuffer
+    priority_queue (mp.Queue): FIFO queue to update new recurrent states from training to ReplayBuffer
+
     """
 
     def __init__(self,
@@ -91,6 +105,7 @@ class ReplayBuffer:
         return self.size
 
     def start_threads(self):
+        """Wrapper function to start all the threads in ReplayBuffer"""
         thread = threading.Thread(target=self.add_data, daemon=True)
         thread.start()
 
@@ -104,9 +119,7 @@ class ReplayBuffer:
         thread.start()
 
     def add_data(self):
-        """
-        asynchronously add episodes to buffer
-        """
+        """asynchronously add episodes to buffer by calling add()"""
         while True:
             time.sleep(0.1)
 
@@ -115,9 +128,7 @@ class ReplayBuffer:
                 self.add(data)
 
     def prepare_data(self):
-        """
-        asynchronously add batches to batch_queue
-        """
+        """asynchronously add batches to batch_queue by calling sample_batch()"""
         while True:
             time.sleep(0.1)
 
@@ -126,9 +137,7 @@ class ReplayBuffer:
                 self.batch_queue.put(data)
 
     def update_data(self):
-        """
-        asynchronously update states inside buffer
-        """
+        """asynchronously update states inside buffer by calling update_priorities()"""
         while True:
             time.sleep(0.1)
 
@@ -137,15 +146,14 @@ class ReplayBuffer:
                 self.update_priorities(*data)
 
     def log_data(self):
-        """
-        asynchronously prints out logs and write into file
-        """
+        """asynchronously prints out logs and write into file by calling log()"""
         while True:
             time.sleep(10)
 
             self.log()
 
     def add(self, episode):
+        """Add Episode to self.buffer and update size, ptr, and log"""
 
         with self.lock:
 
@@ -165,6 +173,15 @@ class ReplayBuffer:
             self.logger.reward = episode.total_reward
 
     def sample_batch(self):
+        """
+        Sample batch from buffer by sampling allocs, ids, actions, rewards, states, idxs.
+        Then create bert targets from ids and precompute rewards with n step and gamma.
+        Finally return finished Block for training.
+
+        Returns:
+        block (Block): completed block
+
+        """
 
         with self.lock:
 
@@ -233,11 +250,16 @@ class ReplayBuffer:
 
     def update_priorities(self, idxs, states, loss, bert_loss, epsilon):
         """
-        :param idxs:      List[List[buffer_idx, time_idx]]
-        :param states:    Array[batch_size, block_len+n_step, state_len, d_model]
-        :param loss:      float
-        :param bert_loss: float
-        :param epsilon:   float
+        Update recurrent states from new recurrent states obtained during training
+        with most up-to-date model weights
+
+        Parameters:
+        idxs (List[List[buffer_idx, time_idx]]): indices of states
+        states (Array[batch_size, block_len+n_step, state_len, d_model]): new recurrent states
+        loss (float): critic loss
+        bert_loss (float): bert loss
+        epsilon (float): epsilon of Learner for logging purposes
+
         """
         assert states.shape == (self.batch_size, self.block_len+self.n_step, self.state_len, self.d_model)
 
@@ -256,6 +278,10 @@ class ReplayBuffer:
             self.logger.epsilon = epsilon
 
     def log(self):
+        """
+        Calls logger.print() to print out all the tracked values during training,
+        lock to make sure its thread safe
+        """
 
         with self.lock:
             self.logger.print()
@@ -264,7 +290,7 @@ class ReplayBuffer:
 class LocalBuffer:
     """
     Used by Actor to store data. Once the episode is finished
-    finish() to return Episode to Learner to store in ReplayBuffer
+    finish() is called to return Episode to Learner to store in ReplayBuffer
     """
 
     def __init__(self):
@@ -276,12 +302,14 @@ class LocalBuffer:
 
     def add(self, alloc, timestamp, action, reward, state):
         """
-        :param alloc:     float
-        :param timestamp: datetime.datetime
-        :param action:    float
-        :param reward:    float
-        :param state:     Array[1, state_len, d_model]
-        :return:
+        This function is called after every time step to store data into list
+
+        Parameters:
+        alloc (float): allocation value
+        timestep (datetime.datetime): timestamp of current time step
+        action (float): recorded action
+        reward (float): recorded reward
+        state (Array[1, state_len, d_model]): recurrent state before model newly generated recurrent state
         """
         state = state.squeeze(0)
 
@@ -293,11 +321,15 @@ class LocalBuffer:
 
     def finish(self, tickers, total_reward, total_time):
         """
-        :param tickers:      List[2]
-        :param total_reward: float
-        :param total_time:   float
+        This function is called after episode ends. lists are
+        converted into numpy arrays and lists are cleared for
+        next episode
 
-        Note: total_reward could be different from reward since it might not be normalized
+        Parameters:
+        tickers (List[2]): List of tickers e.g. ["AAPL", "GOOGL"]
+        total_reward (float): normalized total reward for benchmarking
+        total_time (float): total time for actor to complete episode in seconds
+
         """
         tickers = np.stack(tickers)
 

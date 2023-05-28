@@ -12,7 +12,17 @@ from block_recurrent_transformer_pytorch import BlockRecurrentTransformer \
 
 class Transformer(nn.Module):
     """
-    A standard Transformer module
+    A standard Transformer module that outputs the unprocessed
+    output of the last transformer layer
+
+    Parameters:
+    vocab_size (int): Vocabulary size
+    max_len (int): Max length
+    n_layers (int): Number of layers
+    d_model (int): Dimension of transformer
+    n_head (int): Number of attention heads
+    p (int): Dropout probability
+
     """
 
     def __init__(self,
@@ -37,12 +47,21 @@ class Transformer(nn.Module):
                                     for _ in range(n_layers)])
 
     def state_forward(self, ids, state):
+        """Returns next recurrent state, since standard transformer just return original state"""
         return state
 
     def forward(self, ids, state):
         """
-        :param ids: torch.Tensor [batch_size, length]
-        :return: torch.Tensor [batch_size, length, d_model]
+        Computes transformer output
+
+        Parameters:
+        ids (Tensor[batch_size, length]): tokens
+        state (Tensor[batch_size, state_len, d_model]): recurrent state
+
+        Returns:
+        x (Tensor[batch_size, length, d_model]): output
+        state (Tensor[batch_size, length, d_model]): next recurrent state
+
         """
         x = self.embedding(ids)
 
@@ -57,6 +76,15 @@ class BlockRecurrentTransformer(nn.Module):
     A simplified implementation of BlockRecurrentTransformer see
     https://arxiv.org/pdf/2203.07852.pdf
     without the transformer xl memory and cache
+
+    Parameters:
+    vocab_size (int): Vocabulary size
+    max_len (int): Max length
+    n_layers (int): Number of layers
+    d_model (int): Dimension of transformer
+    n_head (int): Number of attention heads
+    p (int): Dropout probability
+
     """
 
     def __init__(self,
@@ -98,6 +126,7 @@ class BlockRecurrentTransformer(nn.Module):
     def load_embeddings(self):
         """
         uses bert-base-uncased embeddings weights for token and position embedding
+        pretrained bert embeddings are saved in saved directory
         """
         tok_dict = torch.load("saved/word_embeddings")
         pos_dict = torch.load("saved/position_embeddings")
@@ -114,6 +143,7 @@ class BlockRecurrentTransformer(nn.Module):
 
     def load_pretrained_bert(self):
         """
+        Load pretrained bert from pytorch_pretrained_bert BertModel
         only compatible if d_model = 768 and n_head = 8
 
         TODO: not done, transformer layer architecture not compatible
@@ -128,13 +158,20 @@ class BlockRecurrentTransformer(nn.Module):
             pass
 
     def init_state(self, batch_size, state_len):
+        """Initialize recurrent state with either zeros, random normal, or trained parameters"""
         return torch.randn(batch_size, state_len, self.d_model).cuda()
 
     def state_forward(self, ids, state):
         """
-        :param ids:   Tensor[batch_size, length]
-        :param state: Tensor[batch_size, state_len, d_model]
-        :return:      Tensor[batch_size, state_len, d_model]
+        Returns next recurrent state, since standard transformer just return original state
+
+        Parameters:
+        ids (Tensor[batch_size, length]): tokens
+        state (Tensor[batch_size, state_len, d_model]): recurrent state
+
+        Returns:
+        state (Tensor[batch_size, state_len, d_model]): next recurrent state
+
         """
 
         x = self.embedding(ids)
@@ -148,10 +185,16 @@ class BlockRecurrentTransformer(nn.Module):
 
     def forward(self, ids, state):
         """
-        :param ids:   Tensor[batch_size, length]
-        :param state: Tensor[batch_size, state_len, d_model]
-        :return:      Tensor[batch_size, 1]
-                      Tensor[batch_size, state_len, d_model]
+        Computes block recurrent output
+
+        Parameters:
+        ids (Tensor[batch_size, length]): tokens
+        state (Tensor[batch_size, state_len, d_model]): recurrent state
+
+        Returns:
+        x (Tensor[batch_size, length, d_model]): output
+        state (Tensor[batch_size, length, d_model]): next recurrent state
+
         """
 
         x = self.embedding(ids)
@@ -171,6 +214,10 @@ class BlockBERTlucidrains(nn.Module):
     lucidrains' block recurrent transformer taken from
     https://github.com/lucidrains/block-recurrent-transformer-pytorch
     many features are removed for simplicity
+
+    NOTE: Plan to remove in the future, this is mainly for
+          benchmarking against homemade transformer and
+          debugging purposes
     """
 
     def __init__(self,

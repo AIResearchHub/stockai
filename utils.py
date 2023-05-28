@@ -6,12 +6,14 @@ import os
 
 
 def read_sp500(filename="data/sp500.csv"):
+    """Returns a list of S&P500 tickers read from a .csv file"""
     file = pd.read_csv(filename)
     tickers = file["Symbol"].tolist()
     return tickers
 
 
 def read_tickers():
+    """Return usable tickers that have completed news article datasets (no gaps between years)"""
     path = f"C:/PycharmProjects/stockai/data/context/news/"
     tickers = os.listdir(path)
     tickers = filter_tickers(tickers)
@@ -19,6 +21,7 @@ def read_tickers():
 
 
 def read_bert_config(model_type):
+    """Read bert configuration from pretrained_model/"""
     path = f"pretrained_model/{model_type}_config.json"
     with open(path, "r") as f:
         data = json.load(f)
@@ -26,10 +29,7 @@ def read_bert_config(model_type):
 
 
 def filter_tickers(tickers):
-    """
-    if context news data incomplete then filter out ticker
-    (bad data)
-    """
+    """if context news data incomplete then filter out ticker (bad data)"""
     filtered = []
 
     for ticker in tickers:
@@ -57,6 +57,7 @@ def filter_tickers(tickers):
 
 
 def read_ticker_to_name(filename="data/sp500.csv"):
+    """Return a dictionary that maps tickers to names of the companies"""
     file = pd.read_csv(filename)
     tickers = file["Symbol"].tolist()
     names = file["Description"].tolist()
@@ -67,6 +68,7 @@ def read_ticker_to_name(filename="data/sp500.csv"):
 
 
 def read_prices(tickers, start, end, repeat=1):
+    """Read prices from .csv files in /data/prices/ directory"""
     prices = []
     for ticker in tickers:
         price = pd.read_csv(f"/home/yh04/PycharmProjects/stockai/data/prices/{ticker}.csv")
@@ -85,6 +87,7 @@ def read_prices(tickers, start, end, repeat=1):
 
 
 def read_context_file(filename):
+    """Helper function for read_context to read individual files"""
     try:
         data = pd.read_json(filename, lines=True)
         data["Date"] = pd.to_datetime(data["Date"])
@@ -100,7 +103,16 @@ def read_context_file(filename):
 
 def read_context(tickers, mock_data):
     """
-    :return: A dictionary with tickers as keys and dataframe of texts as value
+    This function retrieves the news articles from directory
+    /news/{ticker}
+    /tweets/{ticker}
+
+    Parameters:
+    tickers (List[String]): List of tickers to be read from file
+    mock_data (bool): If true, only one segment is returned for each date for each ticker
+
+    Returns:
+    context (dict[String, pd.Dataframe]): A dictionary with tickers as keys and dataframe of texts as value
     """
     context = dict()
     srcdir = "/home/yh04/PycharmProjects/stockai/data/context"
@@ -158,15 +170,24 @@ def read_context(tickers, mock_data):
 
 def get_context(contexts, tickers, date, max_text=1):
     """
-    :param contexts: pd.Dataframe
-    :param date:     datetime.datetime
-    :param tickers:  List[2]
-    :param max_text: int
-    :return:         List[501]
+    Given the pd.Dataframe of the news articles, tickers and date,
+    retrieve a segment of tokens from news articles associated with
+    the tickers within the date
+    [:250] is associated with tickers[0] and [250] is [SEP] and [251:501] is associated with tickers[1]
 
-    "Next"  = 2279
-    "[CLS]" = 101
-    "[SEP]" = 102
+    Next  = 2279
+    [CLS] = 101
+    [SEP] = 102
+
+    Parameters:
+    contexts (pd.Dataframe)
+    date (datetime.datetime)
+    tickers (List[2])
+    max_text (int)
+
+    Returns:
+    ids (List[501]): tokens of a segment of news article
+
     """
 
     # if tickers[0] == "AAPL":
@@ -203,9 +224,17 @@ def get_context(contexts, tickers, date, max_text=1):
 
 def mask_ids(ids, mask_prob):
     """
-    :param ids:       [batch_size, length+n_step, max_len]
-    :param mask_prob: probability of masking each word
-    :return:
+    Mask ids for bert masked language modeling
+    [MASK] id is 103
+
+    Parameters:
+    ids (Tensor[batch_size, length+n_step, max_len]): tokens
+    mask_prob (int): mask probability for each token
+
+    Returns:
+    ids (Tensor[batch_size, length+n_step, max_len]): tokens after removing masked elements with [MASK]
+    target (Tensor[batch_size, length+n_step, max_len]): bert targets for masked elements with 0 everywhere else
+
     """
 
     target = []
@@ -231,7 +260,7 @@ def mask_ids(ids, mask_prob):
 
 def split_ids(dataframe, maxlen=250):
     """
-    :return: Create new rows for strings with word count exceeding maxlen
+    Create new rows for strings with word count exceeding maxlen
     """
     def split(ids):
         lst = [ids[i:i+maxlen] for i in range(0, len(ids), maxlen)]
@@ -260,6 +289,7 @@ def remove_duplicates(dataframe):
 
 
 def preprocess(dataframe):
+    """Preprocess dataframe"""
     dataframe = remove_links(dataframe)
     dataframe = remove_names(dataframe)
     dataframe = remove_duplicates(dataframe)

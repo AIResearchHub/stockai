@@ -6,16 +6,13 @@ import torch.nn as nn
 
 class PositionalEncoding(nn.Module):
     """
-    compute sinusoid encoding.
+    Compute sinusoid encoding from original transformer paper.
+
+    Parameters:
+    d_model (int): dimension of model
+    max_len (int): max length of transformer
     """
     def __init__(self, d_model, max_len):
-        """
-        constructor of sinusoid encoding class
-
-        :param d_model: dimension of model
-        :param max_len: max sequence length
-        :param device: hardware device setting
-        """
         super(PositionalEncoding, self).__init__()
 
         # same size with input matrix (for adding with input matrix)
@@ -35,6 +32,7 @@ class PositionalEncoding(nn.Module):
         # compute positional encoding to consider positional information of words
 
     def forward(self, x):
+        """Obtain positional encoding according to input size"""
         batch_size, seq_len, d_model = x.size()
         return self.encoding[:seq_len, :]
 
@@ -42,6 +40,10 @@ class PositionalEncoding(nn.Module):
 class LearnedPositionalEncoding(nn.Module):
     """
     Learned Positional Embedding
+
+    Parameters:
+    d_model (int): Dimension of model
+    max_len (int): Max length of transformer
     """
 
     def __init__(self, d_model, max_len):
@@ -50,13 +52,14 @@ class LearnedPositionalEncoding(nn.Module):
                                      requires_grad=True)
 
     def forward(self, x):
+        """Return learned positional encoding according to input shape"""
         batch_size, seq_len, d_model = x.size()
         return self.encoding[:seq_len, :]
 
 
 class TokenEmbedding(nn.Module):
     """
-    Token Embedding
+    Token Embedding for transformer
     """
 
     def __init__(self, vocab_size, d_model):
@@ -65,8 +68,9 @@ class TokenEmbedding(nn.Module):
 
     def forward(self, ids):
         """
-        :param  [batch_size, length]
-        :return [batch_size, length, dim]
+        Parameters:
+        ids : [batch_size, length]
+        token_emb : [batch_size, length, dim]
         """
         token_emb = self.emb(ids)
         return token_emb
@@ -74,7 +78,7 @@ class TokenEmbedding(nn.Module):
 
 class TransformerEmbedding(nn.Module):
     """
-    Transformer Embedding
+    Transformer Embedding, combining positional encoding and token embedding
     """
 
     def __init__(self, vocab_size, d_model, max_len):
@@ -85,8 +89,13 @@ class TransformerEmbedding(nn.Module):
 
     def forward(self, x):
         """
-        :param  [batch_size, length]
-        :return [batch_size, length, dim]
+        Returns complete transformer embedding for transformer layers
+
+        Parameters:
+        x : [batch_size, length]
+
+        Returns:
+        token_emb + pos_emb : [batch_size, length, dim]
         """
         token_emb = self.tok_emb(x)
         pos_emb = self.pos_emb(token_emb)

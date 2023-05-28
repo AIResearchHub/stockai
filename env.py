@@ -11,26 +11,30 @@ warnings.filterwarnings("ignore")
 
 
 class Env:
+    """
+    state = (allocation value (0, 1), date of current time step (datetime.datetime))
+
+
+    alloc:      initialized in reset() indicating where the capital is going
+                0.5  = 50/50 allocation
+                0    = 100/0 allocation
+                1    = 0/100 allocation
+
+
+    Parameters:
+    tickers (List[String]): list of tickers
+    render (bool): If true render real time plot during training with matplotlib
+    start (String): start date in format "2020-01-01"
+    end (String): end date in format "2020-01-01"
+    repeat (int): If repeat, then prices are duplicated "repeat" times to look at more context at each date and time
+
+    """
     def __init__(self,
                  tickers,
                  render,
                  start,
                  end,
                  repeat):
-        """
-        :param tickers:            List[string]
-        :param render:             bool
-        :param start:              string
-        :param end:                string
-        :param repeat:             int
-
-        self.alloc:                initialized in self.reset() indicating where the capital is going
-                                   0.5  = 50/50 allocation
-                                   0    = 100/0 allocation
-                                   1    = 0/100 allocation
-
-        state = (first stock allocation percent, date of current timestep)
-        """
         self.tickers = tickers
 
         self.prices = read_prices(tickers=self.tickers,
@@ -64,6 +68,17 @@ class Env:
             self.render_class = Render()
 
     def reset(self):
+        """
+        This function is called before every episode, it re-samples to tickers,
+        prepare the prices, reset time and alloc constant, and reset render class
+
+        Returns:
+        state (float, datetime.datetime): initial state
+        reward (float): always 0 since episode just started
+        done (bool): always False since episode just started
+        temp_tickers (List[2]): 2 newly sampled tickers
+
+        """
         self.temp_prices = self.prices.sample(n=2, axis='columns')
         self.temp_prices = self.temp_prices.dropna()
         while len(self.temp_prices) < 10:
@@ -84,6 +99,22 @@ class Env:
         return (self.alloc, self.temp_index[self.time]), 0, False, self.temp_tickers
 
     def step(self, action, action_scale=10):
+        """
+        This function is called before at every time step, if last time step then return done = True,
+        allocation is updated according to action, and reward is computed according to prices,
+        and render class step is called.
+
+        Parameters:
+        action (float): Action value (0, 1)
+        action_scale (float = 10): Value to divide action by, the smaller the value, the longer it takes to change allocation
+
+        Returns:
+        state (float, datetime.datetime): initial state
+        reward (float): always 0 since episode just started
+        done (bool): always False since episode just started
+        temp_tickers (List[2]): 2 newly sampled tickers
+
+        """
         if self.time >= self.temp_timesteps-1:
             return (self.alloc, self.temp_index[self.time]), 0, True, self.temp_tickers
 
@@ -105,6 +136,20 @@ class Env:
         return (self.alloc, self.temp_index[self.time]), reward, False, self.temp_tickers
 
     def get_benchmark(self):
+        """
+        In order to determine if a reward is above average, average reward, stock 1 reward, and stock 2 rewards
+        are computed.
+
+        Average reward is 0.5 allocation
+        Stock 1 reward is 0.0 allocation
+        Stock 2 reward is 1.0 allocation
+
+        Returns:
+        avg_reward (float): average reward
+        stock1_reward (float): holding stock 1 reward
+        stock2_reward (float): holding stock 2 reward
+
+        """
         avg_reward = 0.
         stock1_reward = 0.
         stock2_reward = 0.
@@ -121,6 +166,14 @@ class Env:
         return avg_reward, stock1_reward, stock2_reward
 
     def normalize_reward(self, total_reward):
+        """
+        This function calls get_benchmark() to get stock1 and stock2 reward
+        normalized reward is then computed from turning it into an interval
+        where min(stock1, stock2) is 0 and max(stock1, stock2) is 1
+
+        Returns:
+        normalized_reward (float): normalized reward of total reward
+        """
         _, reward1, reward2 = self.get_benchmark()
         min_reward = min(reward1, reward2)
         max_reward = max(reward1, reward2)
@@ -129,11 +182,17 @@ class Env:
         return normalized_reward
 
     def render_episode(self):
+        """Render the episode when episode is finished"""
         if self.render:
             self.render_class.render()
 
 
 class Render:
+    """
+    This simple helper class is used inside Env to keep track of the allocations
+    to be used for rendering at the end of each episode in matplotlib during training
+
+    """
     eq_r = 1
     eq_c1 = 1
     eq_c2 = 1
@@ -146,6 +205,7 @@ class Render:
         self.reset()
 
     def reset(self):
+        """Called at the start of each episode to reset the variables"""
         self.eq_r = 1
         self.eq_c1 = 1
         self.eq_c2 = 1
@@ -155,6 +215,7 @@ class Render:
         self.change2 = [1]
 
     def step(self, r, c1, c2):
+        """Called at each time step to record the allocations"""
         self.eq_r *= (r + 1)
         self.eq_c1 *= (c1 + 1)
         self.eq_c2 *= (c2 + 1)
@@ -164,6 +225,7 @@ class Render:
         self.change2.append(self.eq_c2)
 
     def render(self):
+        """Called at the end of the episode to render the plot"""
         plt.clf()
 
         plt.plot(self.change1, c="blue")

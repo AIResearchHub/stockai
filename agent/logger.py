@@ -4,7 +4,8 @@ import time
 
 class Logger:
     """
-    Prints and logs data, parameters are modified directly by buffer threads
+    Prints and logs data withing ReplayBuffer,
+    parameters are modified directly by buffer threads
     """
 
     def __init__(self):

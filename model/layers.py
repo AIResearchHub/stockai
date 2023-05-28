@@ -10,7 +10,14 @@ from .attention import Attention, RecurrentAttention
 
 class AttentionLayer(nn.Module):
     """
-    Standard transformer layer
+    Class representing a standard transformer layer. This layer includes self-attention,
+    normalization, dropout, and a feed-forward network
+
+    Parameters:
+    d_model (int): The dimension of the model
+    ffn_hidden (int): The size of the hidden layer in the feed forward network
+    n_head (int): The number of attention heads
+    p (float): The probability of dropout
     """
 
     def __init__(self, d_model, ffn_hidden, n_head, p):
@@ -24,6 +31,7 @@ class AttentionLayer(nn.Module):
         self.dropout2 = nn.Dropout(p=p)
 
     def forward(self, x, src_mask=None):
+        """Compute the output of the transformer layer"""
         _x = x
         x = self.attention(q=x, k=x, v=x, mask=src_mask)
 
@@ -41,7 +49,14 @@ class AttentionLayer(nn.Module):
 
 class RecurrentAttentionLayer(nn.Module):
     """
-    A recurrent transformer layer from block-recurrent transformer
+    A recurrent transformer layer from block-recurrent transformer using RecurrentAttention
+    which includes self attention and cross attention and shared keys and values
+
+    Parameters:
+    d_model (int): The dimension of the model
+    ffn_hidden (int): The size of the hidden layer in the feed forward network
+    n_head (int): The number of attention heads
+    p (float): The probability of dropout
     """
     def __init__(self, d_model, ffn_hidden, n_head, p, max_len=512):
         super(RecurrentAttentionLayer, self).__init__()
@@ -65,6 +80,8 @@ class RecurrentAttentionLayer(nn.Module):
 
 
     def forward(self, x, s, x_mask=None, s_mask=None):
+        """Compute the output of the transformer layer"""
+
         _x = x
         _s = s
 
@@ -84,12 +101,19 @@ class RecurrentAttentionLayer(nn.Module):
 
 class FeedForward(nn.Module):
     """
-    Sequential(
-        LayerNorm(dim)
-        Linear(dim, inner_dim)
-        GELU()
-        Linear(inner_dim, dim)
-    )
+    A simple feed forward network to be used in transformer layers.
+
+    Architecture:
+        Sequential(
+            LayerNorm(dim)
+            Linear(dim, inner_dim)
+            GELU()
+            Linear(inner_dim, dim)
+        )
+
+    Parameters:
+    dim (int): The dimension of the input and output
+    inner_dim (int): The dimension of the hidden layer
     """
 
     def __init__(self, dim, inner_dim):
@@ -108,7 +132,9 @@ class FeedForward(nn.Module):
 
 class FixedGate(nn.Module):
     """
-    Fixed Gate for block-recurrent transformer
+    Fixed Gate for block-recurrent transformer, according to paper it is the best performing gate
+    Just a simple ema
+    See https://arxiv.org/pdf/2203.07852.pdf (page 5) for more explanation
     """
     def __init__(self, dim):
         super().__init__()
@@ -116,6 +142,7 @@ class FixedGate(nn.Module):
         self.bias = nn.Parameter(torch.randn(dim), requires_grad=True)
 
     def forward(self, x, state):
+        """Computes the output of the fixed gate"""
         z = self.proj(x)
         g = torch.sigmoid(self.bias)
         return torch.mul(state, g) + torch.mul(z, 1-g)

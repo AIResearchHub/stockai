@@ -26,6 +26,26 @@ class Learner:
     """
     Main class used to train the agent. Called by rpc remote.
     Call run() to start the main training loop.
+
+    Parameters:
+
+    buffer_size (int): The size of the buffer in ReplayBuffer
+    batch_size (int): Batch size for training
+    n_accumulate (int): Number of times to accumulate gradients before optimizer step
+    tickers (List): A list of n tickers e.g. ["AAPL", "GOOGL", "BAC"]
+    mock_data (bool): If true then only one news paragrah per day for each data for test run
+    vocab_size (int): Vocabulary size for transformer
+    n_layers (int): Number of layers in transformer
+    d_model (int): Dimensions of the model
+    n_head (int): Number of attention heads in transformer
+    n_cos (int): Number of cosine samples for each tau in IQN
+    n_tau (int): Number of tau samples for IQN each representing a value for a percentile
+    n_p (int): Number of policy samples to be used for critic value
+    state_len (int): Length of recurrent state
+    n_step (int): N step returns see https://paperswithcode.com/method/n-step-returns
+    burnin_len (int): Length of burnin, concept from R2D2 paper
+    rollout_len (int): Length of rollout, concept from R2D2 paper
+
     """
     epsilon = 1
     epsilon_min = 0.2
@@ -171,7 +191,14 @@ class Learner:
         Start actor by calling actor.remote().run()
         Actors communicate with learner through rpc and RRef
 
-        :return: RRef()   - to reference the actor worker
+        Parameters:
+        learner_rref (RRef): learner RRef for actor to reference the learner
+        tickers (List[2]): A list of tickers e.g. ["AAPL", "GOOGL"]
+        d_model (int): Dimension of model
+        state_len (int): Length of recurrent state
+
+        Returns:
+        actor_rref (RRef): to reference the actor from the learner
         """
         actor_rref = rpc.remote("actor",
                                 Actor,
@@ -189,9 +216,10 @@ class Learner:
     @async_execution
     def queue_request(self, *args):
         """
-        Called by actor to queue requests
+        Called by actor asynchronously to queue requests
 
-        :return: Future().wait()
+        Returns:
+        future (Future.wait): Halts until value is ready
         """
         future = self.future1.then(lambda f: f.wait())
         with self.lock:
@@ -202,9 +230,11 @@ class Learner:
     @async_execution
     def return_episode(self, episode):
         """
-        Called by actor to return completed episodes
+        Called by actor to asynchronously to return completed Episode
+        to Learner
 
-        :return: Future().wait()
+        Returns:
+        future (Future.wait): Halts until value is ready
         """
         future = self.future2.then(lambda f: f.wait())
         self.sample_queue.put(episode)
@@ -214,11 +244,17 @@ class Learner:
 
     def get_policy(self, x, state):
         """
-        :param x:     Tensor[1, 1]
-                      Tensor[1, 501]
-        :param state: Tensor[1, state_len, d_model]
-        :return: action: float
-                 state:  Array[1, state_len, d_model]
+        Function to get actor from eval_model which is constantly updated
+        during training
+
+        Parameters:
+        x (Tensor[1, 1], Tensor[1, 501]): allocation value and tokens to pass into model
+        state (Tensor[1, state_len, d_model]): recurrent state to pass into model
+
+        Returns:
+        action (float): action value with interval (-1, 1)
+        state (Array[1, state_len, d_model): next recurrent state
+
         """
         assert x[0].shape == (1, 1)
         assert x[1].shape == (1, 501)
@@ -250,12 +286,19 @@ class Learner:
 
     def get_action(self, alloc, timestamp, tickers, state):
         """
-        :param alloc:     float
-        :param timestamp: datetime.datetime
-        :param tickers:   List[2]
-        :param state:     Array[1, state_len, d_model]
-        :return: action:  float
-                 state:   Array[1, state_len, d_model]
+        Get action function that turns all the env inputs into tensor
+        and calls get_policy to get action value
+
+        Parameters:
+        alloc (float): allocation value
+        timestamp (datetime.datetime): timestamp of current time step
+        tickers (List[2]): List containing tickers e.g. ["AAPL", "GOOGL"]
+        state (Array[1, state_len, d_model]): recurrent state
+
+        Returns:
+        action (float): Action value
+        state (Array[1, state_len, d_model]): Next recurrent state
+
         """
         ids = get_context(contexts=self.contexts,
                           tickers=tickers,
@@ -271,7 +314,8 @@ class Learner:
 
     def answer_requests(self):
         """
-        Thread to answer actor requests
+        Thread to answer actor requests from queue_request and return_episode.
+        Loops through with a time gap of 0.0001 sec
         """
 
         while True:
@@ -298,7 +342,8 @@ class Learner:
 
     def prepare_data(self):
         """
-        Thread to prepare batch for update
+        Thread to prepare batch for update, batch_queue is filled by ReplayBuffer
+        Loops through with a time gap of 0.1 sec
         """
 
         while True:
@@ -310,7 +355,8 @@ class Learner:
 
     def run(self):
         """
-        Main training loop.
+        Main training loop. Start ReplayBuffer threads, answer_requests thread,
+        and prepare_data thread. Then starts training
         """
         self.replay_buffer.start_threads()
 
@@ -339,9 +385,8 @@ class Learner:
 
     def update(self, allocs, ids, actions, rewards, bert_targets, states, idxs):
         """
-        An update step
-        Perform a training step, update new recurrent states,
-        soft update target model, transfer weights to eval model
+        An update step. Performs a training step, update new recurrent states,
+        soft update target model and transfer weights to eval model
         """
         loss, bert_loss, new_states = self.train_step(allocs=allocs.cuda(),
                                                       ids=ids.cuda(),
@@ -366,14 +411,21 @@ class Learner:
     def train_step(self, allocs, ids, actions, rewards, bert_targets, states):
         """
         Accumulate gradients to increase batch size
-        Gradients are cached for self.n_accumulate steps before optimizer.step()
+        Gradients are cached for n_accumulate steps before optimizer.step()
 
-        :param allocs:       [block_len+n_step, batch_size*n_accumulate, 1]
-        :param ids:          [block_len+n_step, batch_size*n_accumulate, 501]
-        :param actions:      [block_len+n_step, batch_size*n_accumulate, 1, 1]
-        :param rewards:      [block_len, batch_size*n_accumulate, 1]
-        :param bert_targets: [block_len+n_step, batch_size*n_accumulate, 1]
-        :param states:       [batch_size*n_accumulate, state_len, d_model]
+        Parameters:
+        allocs (Tensor[block_len+n_step, batch_size*n_accumulate, 1]): allocation values
+        ids (Tensor[block_len+n_step, batch_size*n_accumulate, 501]): tokens
+        actions (Tensor[block_len+n_step, batch_size*n_accumulate, 1, 1]): recorded actions
+        rewards (Tensor[block_len, batch_size*n_accumulate, 1]): recorded rewards
+        bert_targets (Tensor[block_len+n_step, batch_size*n_accumulate, 1]): bert targets
+        states (Tensor[batch_size*n_accumulate, state_len, d_model]): recorded recurrent states
+
+        Returns:
+        loss (float): Loss of critic model
+        bert_loss (float): Loss of bert masked language modeling
+        new_states (float): Generated new states with new weights during training
+
         """
 
         loss, bert_loss = 0, 0
@@ -419,6 +471,20 @@ class Learner:
         Memory-Efficient BPTT see https://arxiv.org/abs/1606.03401
         Overcoming memory limitations by caching gradients and chunking BPTT
         into different backpropagaton steps
+
+        Parameters:
+        allocs (Tensor[block_len+n_step, batch_size*n_accumulate, 1]): allocation values
+        ids (Tensor[block_len+n_step, batch_size*n_accumulate, 501]): tokens
+        actions (Tensor[block_len+n_step, batch_size*n_accumulate, 1, 1]): recorded actions
+        rewards (Tensor[block_len, batch_size*n_accumulate, 1]): recorded rewards
+        bert_targets (Tensor[block_len+n_step, batch_size*n_accumulate, 1]): bert targets
+        states (Tensor[batch_size*n_accumulate, state_len, d_model]): recorded recurrent states
+
+        Returns:
+        loss (float): Loss of critic model
+        bert_loss (float): Loss of bert masked language modeling
+        new_states (float): Generated new states with new weights during training
+
         """
 
         # create critic targets and new states
@@ -516,21 +582,25 @@ class Learner:
         """
         Used concepts from PCGrad see https://arxiv.org/pdf/2001.06782.pdf
         The idea is to do multi-task learning by treating gradients as vectors
-        and projecting then onto each other, thus removing conflicting directions
+        and projecting then onto each other, then removing conflicting directions
         The idea is to train bert masked language modeling and critic for rl
         at the same time to accelerate training by overcoming the small signal
         from rl rewards with signal from masked language modeling
 
-        :param expected       [batch_size, n_tau, 1]
-        :param target         [batch_size, 1, n_tau]
-        :param taus           [batch_size, n_tau, 1]
-        :param bert_expected  [batch_size, max_len, vocab_size]
-        :param bert_target    [batch_size, max_len]
-        :param state          [batch_size, state_len, d_model]
-        :param save_grad      [batch_size, state_len, d_model]
-        :param ckpt_state     [batch_size, state_len, d_model]
+        Parameters:
+        expected (Tensor[batch_size, n_tau, 1]): expected critic values
+        target (Tensor[batch_size, 1, n_tau]): target critic values
+        taus (Tensor[batch_size, n_tau, 1]): taus
+        bert_expected (Tensor[batch_size, max_len, vocab_size]): expected bert values
+        bert_target (Tensor[batch_size, max_len]): target bert values
+        state (Tensor[batch_size, state_len, d_model]): recurrent state to cache gradients
+        save_grad (Tensor[batch_size, state_len, d_model]): saved state gradients from next step
+        ckpt_state (Tensor[batch_size, state_len, d_model]): next recurrent state associated with save_grad
 
-        :return: loss, bert_loss
+        Returns:
+        loss(Tensor[]): Critic Loss
+        bert_loss(Tensor[]): Bert masked language modeling loss
+        ckpt_state(Tensor[batch_size, state_len, d_model]): tensor of recurrent state with cached gradients
         """
         assert target.shape == (self.batch_size, 1, self.n_tau)
         assert expected.shape == (self.batch_size, self.n_tau, 1)
@@ -588,8 +658,17 @@ class Learner:
     @staticmethod
     def proj_grads(grad1, grad2):
         """
-        See PCGrad: https://arxiv.org/pdf/2001.06782.pdf
-        Projecting u onto v and removing it if its in the opposite direction
+        Project gradients function from PCGrad see https://arxiv.org/pdf/2001.06782.pdf
+        Projecting u onto v and removing it if it's in the opposite direction
+        See equation https://www.youtube.com/watch?v=m4PZBk8Zi8w
+
+        Parameters:
+        grad1 (Tensor[batch_size, ...]): first gradient
+        grad2 (Tensor[batch_size, ...]): second gradient
+
+        Returns:
+        grad1 (Tensor[batch_size, ...]): projected first gradient
+        grad2 (Tensor[batch_size, ...]): projected second gradient
         """
         grad1_ = grad1.detach()
 
@@ -608,12 +687,17 @@ class Learner:
     def quantile_loss(self, expected, target, taus):
         """
         See IQN: https://arxiv.org/pdf/1806.06923.pdf
+        Loss equation is Page 5 Eqn (3)
         Training a distribution by viewing the target as a distribution and approximating it
 
-        :param expected: Tensor[batch_size, n_tau, 1]
-        :param target:   Tensor[batch_size, 1, n_tau]
-        :param taus:     Tensor[batch_size, n_tau, 1]
-        :return: loss
+        Parameters:
+        expected (Tensor[batch_size, n_tau, 1])
+        target (Tensor[batch_size, 1, n_tau])
+        taus (Tensor[batch_size, n_tau, 1])
+
+        Returns:
+        loss (Tensor[]): quantile loss
+
         """
         assert not taus.requires_grad
 
@@ -632,11 +716,15 @@ class Learner:
 
     def bert_loss(self, expected, target):
         """
-        Standard bert masked language modeling loss
+        Standard bert masked language modeling loss.
 
-        :param expected: Tensor[batch_size, vocab_size, max_len]
-        :param target  : Tensor[batch_size, max_len]
-        :return: loss
+        Parameters:
+        expected (Tensor[batch_size, vocab_size, max_len]): expected values
+        target (Tensor[batch_size, max_len]): target values
+
+        Returns:
+        loss (Tensor[]): bert loss
+
         """
         assert expected.shape == (self.batch_size, 30522, 501)
         assert target.shape == (self.batch_size, 501)
@@ -644,6 +732,7 @@ class Learner:
         return self.nll_loss(expected, target)
 
     def load(self, name="checkpoint"):
+        """Load weights from saved directory"""
         state_dict = torch.load(f"saved/{name}")
 
         self.model.load_state_dict(state_dict)
@@ -651,11 +740,20 @@ class Learner:
         self.eval_model.load_state_dict(state_dict)
 
     def save(self, name="checkpoint"):
+        """Save weights to saved directory"""
         torch.save(self.model.state_dict(), f"saved/{name}")
 
     @staticmethod
     def soft_update(target, source, tau):
-        """Soft weight updates: target slowly track the weights of source with constant tau"""
+        """
+        Soft weight updates: target slowly track the weights of source with constant tau
+        See DDPG paper page 4: https://arxiv.org/pdf/1509.02971.pdf
+
+        Parameters:
+        target (nn.Module): target model
+        source (nn.Module): source model
+        tau (float): soft update constant
+        """
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(
                 target_param.data * (1.0 - tau) + param.data * tau
@@ -663,6 +761,12 @@ class Learner:
 
     @staticmethod
     def hard_update(target, source):
-        """Copy weights from source to target"""
+        """
+        Copy weights from source to target
+
+        Parameters:
+        target (nn.Module): target model
+        source (nn.Module): source model
+        """
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(param.data)

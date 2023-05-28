@@ -44,6 +44,7 @@ def run_worker(rank,
     """
 
     if rank == 0:
+        # create Learner in a remote location
         rpc.init_rpc("learner", rank=rank, world_size=2)
 
         learner_rref = rpc.remote(
@@ -70,10 +71,12 @@ def run_worker(rank,
         )
         learner_rref.remote().run()
 
+        # Start training loop
         while True:
             time.sleep(1)
 
     else:
+        # Create actor in a remote location
         rpc.init_rpc("actor", rank=rank, world_size=2)
 
     rpc.shutdown()
@@ -96,6 +99,7 @@ def main(tickers,
          n_p,
          n_tau
          ):
+    # set localhost and port
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(portpicker.pick_unused_port())
 
