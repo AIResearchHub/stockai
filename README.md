@@ -6,6 +6,22 @@ Using Natural Language Processing and Reinforcement Learning to predict stock pr
 google news feed using techniques from many state of the art papers
 
 
+## Currently implementing
+
+
+Longformer (Sliding window attention to scale compute linearly with sequence length)
+
+https://arxiv.org/pdf/2004.05150.pdf
+
+Big Bird (Window attention combined with random attention)
+
+https://arxiv.org/pdf/2007.14062.pdf
+
+Transformer XL (Using cached query and keys for extra long sequences)
+
+https://arxiv.org/pdf/1901.02860.pdf
+
+
 ## Papers implemented in this algorithm
 
 
