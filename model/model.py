@@ -5,13 +5,14 @@ import torch.nn as nn
 
 import numpy as np
 
-from .transformer import Transformer, Longformer, BlockRecurrentTransformer, BlockBERTlucidrains
+from .transformer import Transformer, TransformerXL, Longformer, \
+    BlockRecurrentTransformer, BlockBERTlucidrains
 
 
 class Model(nn.Module):
 
     def __init__(self,
-                 cls=Longformer,
+                 cls=TransformerXL,
                  vocab_size=30522,
                  max_len=512,
                  n_layers=4,
@@ -64,11 +65,11 @@ class Model(nn.Module):
         self.out1 = nn.Linear(d_model, d_model)
         self.out2 = nn.Linear(d_model, 1)
 
-    def init_state(self, batch_size=1, state_len=1):
+    def init_state(self, batch_size=1, device="cpu"):
         """
         :return:      Tensor[batch_size, state_len, d_model]
         """
-        return self.transformer.init_state(batch_size, state_len)
+        return self.transformer.init_state(batch_size=batch_size, device=device)
 
     def state_forward(self, ids, state):
         """

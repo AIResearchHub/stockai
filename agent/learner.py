@@ -54,7 +54,6 @@ class Learner:
     lr = 1e-4
     gamma = 0.99
 
-    state_len = 1
     tau = 0.01
     save_every = 100
 
@@ -166,8 +165,9 @@ class Learner:
         self.replay_buffer = ReplayBuffer(buffer_size=buffer_size,
                                           batch_size=batch_size*n_accumulate,
                                           block_len=burnin_len+rollout_len,
+                                          max_len=max_len,
                                           d_model=d_model,
-                                          state_len=state_len,
+                                          state_len=max_len,
                                           n_step=n_step,
                                           gamma=self.gamma,
                                           contexts=self.contexts,
@@ -261,8 +261,7 @@ class Learner:
 
         """
         assert x[0].shape == (1, 1)
-        assert x[1].shape == (1, 501)
-        assert state.shape == (1, self.state_len, self.d_model)
+        assert x[1].shape == (1, 512)
 
         self.epsilon -= self.epsilon_decay
         self.epsilon = max(self.epsilon_min, self.epsilon)
@@ -292,6 +291,8 @@ class Learner:
         """
         Get action function that turns all the env inputs into tensor
         and calls get_policy to get action value
+        If state is None, then return 0. as action and initialize state
+        through self.module.init_state()
 
         Parameters:
         alloc (float): allocation value
@@ -304,14 +305,17 @@ class Learner:
         state (Array[1, state_len, d_model]): Next recurrent state
 
         """
+        if state is None:
+            return 0., self.model.module.init_state()
+
         ids = get_context(contexts=self.contexts,
                           tickers=tickers,
                           date=timestamp
                           )
 
         alloc = torch.tensor(alloc, dtype=torch.float32).view(1, 1).cuda()
-        ids = torch.tensor(ids, dtype=torch.int32).view(1, 501).cuda()
-        state = torch.tensor(state, dtype=torch.float32).view(1, self.state_len, self.d_model).cuda()
+        ids = torch.tensor(ids, dtype=torch.int32).view(1, 512).cuda()
+        state = torch.tensor(state, dtype=torch.float32)
 
         action, state = self.get_policy(x=(alloc, ids), state=state)
         return action, state
@@ -464,9 +468,8 @@ class Learner:
         loss /= self.n_accumulate
         bert_loss /= self.n_accumulate
 
-        new_states = np.stack(new_states).reshape(
-            self.batch_size*self.n_accumulate, self.block_len+self.n_step, self.state_len, self.d_model
-        )
+        new_states = np.stack(new_states)
+        new_states = new_states.reshape((new_states.shape[0] * new_states.shape[1],) + new_states.shape[2:])
 
         return loss, bert_loss, new_states
 
@@ -549,7 +552,8 @@ class Learner:
             bert_expected = bert_expected.transpose(1, 2)
 
             loss_ = self.quantile_loss(expected, target, taus)
-            torch.autograd.backward([loss_, state], [None, save_grad])
+            loss_.backward()
+            # torch.autograd.backward([loss_, state], [None, save_grad])
             bert_loss_ = torch.tensor(0.)
 
             # loss_, bert_loss_, ckpt_state = self.get_gradients_step(expected=expected,
@@ -578,7 +582,9 @@ class Learner:
 
         loss = loss.detach().cpu().numpy().item()
         bert_loss = bert_loss.detach().cpu().numpy().item()
-        new_states = torch.stack(new_states).transpose(0, 1).detach().cpu().numpy()
+
+        # shape has to be [batch_size, timesteps, ...]
+        new_states = torch.stack(new_states).transpose(1, 2).transpose(0, 1).unsqueeze(3).detach().cpu().numpy()
 
         return loss, bert_loss, new_states
 

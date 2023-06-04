@@ -88,7 +88,8 @@ class Actor:
 
         while True:
             (alloc, timestamp), total_reward, done, tickers = self.env.reset()
-            state = np.random.randn(1, self.state_len, self.d_model)
+            _, state = self.get_action(alloc, timestamp, tickers, None).wait()
+            state = state.numpy()
 
             start = time.time()
             while not done:
@@ -109,3 +110,4 @@ class Actor:
             self.return_episode(episode).wait()
 
             self.env.render_episode()
+

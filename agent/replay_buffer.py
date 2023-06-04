@@ -65,6 +65,7 @@ class ReplayBuffer:
                  buffer_size,
                  batch_size,
                  block_len,
+                 max_len,
                  d_model,
                  state_len,
                  n_step,
@@ -78,6 +79,7 @@ class ReplayBuffer:
         self.buffer_size = buffer_size
         self.batch_size = batch_size
         self.block_len = block_len
+        self.max_len = max_len
 
         self.d_model = d_model
         self.state_len = state_len
@@ -209,15 +211,15 @@ class ReplayBuffer:
                 ])
                 allocs.append(self.buffer[buffer_idx].allocs[time_idx:time_idx+self.block_len+self.n_step])
                 actions.append(self.buffer[buffer_idx].actions[time_idx:time_idx+self.block_len+self.n_step])
-                states.append(self.buffer[buffer_idx].states[time_idx])
+                states.append(torch.tensor(self.buffer[buffer_idx].states[time_idx]))
 
             ids, bert_targets = mask_ids(ids, mask_prob=0.20)
 
             allocs = torch.tensor(np.stack(allocs)).view(self.batch_size, self.block_len+self.n_step, 1)
-            ids = torch.tensor(np.stack(ids)).view(self.batch_size, self.block_len+self.n_step, 501)
+            ids = torch.tensor(np.stack(ids)).view(self.batch_size, self.block_len+self.n_step, self.max_len)
             actions = torch.tensor(np.stack(actions)).view(self.batch_size, self.block_len+self.n_step, 1)
-            bert_targets = torch.tensor(np.stack(bert_targets)).view(self.batch_size, self.block_len+self.n_step, 501)
-            states = torch.tensor(np.stack(states)).view(self.batch_size, self.state_len, self.d_model)
+            bert_targets = torch.tensor(np.stack(bert_targets)).view(self.batch_size, self.block_len+self.n_step, self.max_len)
+            states = torch.concat(states, dim=1)
 
             rewards = torch.tensor(np.sum(np.array(rewards) * self.gamma, axis=2),
                                    dtype=torch.float32
@@ -231,11 +233,11 @@ class ReplayBuffer:
             states = states.to(torch.float32)
 
             assert allocs.shape == (self.block_len+self.n_step, self.batch_size, 1)
-            assert ids.shape == (self.block_len+self.n_step, self.batch_size, 501)
+            assert ids.shape == (self.block_len+self.n_step, self.batch_size, self.max_len)
             assert actions.shape == (self.block_len+self.n_step, self.batch_size, 1, 1)
             assert rewards.shape == (self.block_len, self.batch_size, 1)
-            assert bert_targets.shape == (self.block_len+self.n_step, self.batch_size, 501)
-            assert states.shape == (self.batch_size, self.state_len, self.d_model)
+            assert bert_targets.shape == (self.block_len+self.n_step, self.batch_size, self.max_len)
+            assert states.shape == (states.size(0), self.batch_size, self.state_len, self.d_model)
 
             block = Block(allocs=allocs,
                           ids=ids,
@@ -261,7 +263,8 @@ class ReplayBuffer:
         epsilon (float): epsilon of Learner for logging purposes
 
         """
-        assert states.shape == (self.batch_size, self.block_len+self.n_step, self.state_len, self.d_model)
+        assert states.shape[0] == self.batch_size
+        assert states.shape[1] == self.block_len+self.n_step
 
         with self.lock:
 
@@ -311,8 +314,6 @@ class LocalBuffer:
         reward (float): recorded reward
         state (Array[1, state_len, d_model]): recurrent state before model newly generated recurrent state
         """
-        state = state.squeeze(0)
-
         self.alloc_buffer.append(alloc)
         self.timestamp_buffer.append(timestamp)
         self.action_buffer.append(action)

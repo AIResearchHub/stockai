@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from .attention import Attention, RecurrentAttention
+from .attention import Attention, XLAttention, RecurrentAttention
 from .embeddings import LearnedPositionalEncoding
 
 import torch
@@ -123,13 +123,13 @@ class LongformerAttentionLayer(nn.Module):
 
     def __init__(self, d_model, ffn_hidden, n_head, p):
         super(LongformerAttentionLayer, self).__init__()
-        # self.config = LongformerConfig(hidden_size=d_model,
-        #                                intermediate_size=ffn_hidden,
-        #                                num_attention_heads=n_head,
-        #                                hidden_dropout_prob=p,
-        #                                attention_probs_dropout_prob=p
-        #                                )
-        self.attention = LongformerSelfAttention(config=self.config)
+        self.config = LongformerConfig(hidden_size=d_model,
+                                       intermediate_size=ffn_hidden,
+                                       num_attention_heads=n_head,
+                                       hidden_dropout_prob=p,
+                                       attention_probs_dropout_prob=p
+                                       )
+        self.attention = LongformerSelfAttention(layer_id=0, config=self.config)
         self.norm1 = nn.LayerNorm(d_model)
         self.dropout1 = nn.Dropout(p=p)
 
@@ -198,6 +198,54 @@ class AttentionLayer(nn.Module):
         """
         _x = x
         x = self.attention(q=x, k=x, v=x, mask=src_mask)
+
+        x = self.norm1(x + _x)
+        x = self.dropout1(x)
+
+        _x = x
+        x = self.ffn(x)
+
+        x = self.norm2(x + _x)
+        x = self.dropout2(x)
+
+        return x
+
+
+class XLAttentionLayer(nn.Module):
+    """
+    Class representing a transformer xl layer. This layer includes self-attention,
+    normalization, dropout, and a feed-forward network.
+
+    Parameters:
+    d_model (int): The dimension of the model.
+    ffn_hidden (int): The size of the hidden layer in the feed-forward network.
+    n_head (int): The number of attention heads.
+    p (float): The probability of dropout.
+    """
+
+    def __init__(self, d_model, ffn_hidden, n_head, p):
+        super(XLAttentionLayer, self).__init__()
+        self.attention = XLAttention(d_model=d_model, n_head=n_head)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(p=p)
+
+        self.ffn = FeedForward(dim=d_model, inner_dim=ffn_hidden)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout2 = nn.Dropout(p=p)
+
+    def forward(self, x, mem, src_mask=None):
+        """
+        Forward pass of the AttentionLayer.
+
+        Parameters:
+        x (Tensor): Input tensor.
+        src_mask (Tensor, optional): Source mask tensor.
+
+        Returns:
+        Tensor: Output tensor after passing through the layer.
+        """
+        _x = x
+        x = self.attention(q=x, kv=x, mem=mem, mask=src_mask)
 
         x = self.norm1(x + _x)
         x = self.dropout1(x)

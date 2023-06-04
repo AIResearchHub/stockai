@@ -208,15 +208,13 @@ def get_context(contexts, tickers, date, max_text=1):
 
     if not sample1.empty:
         ids += sample1.sum()
-    if len(ids) < 250:
-        ids += ([102] * (250 - len(ids)))
-
-    ids += [102]
+    if len(ids) < 256:
+        ids += ([102] * (256 - len(ids)))
 
     if not sample2.empty:
         ids += sample2.sum()
-    if len(ids) < 501:
-        ids += ([102] * (501 - len(ids)))
+    if len(ids) < 512:
+        ids += ([102] * (512 - len(ids)))
 
     return ids
 
@@ -236,13 +234,14 @@ def mask_ids(ids, mask_prob):
 
     """
 
+    max_len = len(ids[0][0])
     target = []
 
     for i in range(len(ids)):
         target_ = []
 
         for j in range(len(ids[i])):
-            target__ = [0] * 501
+            target__ = [0] * max_len
 
             for k in range(len(ids[i][j])):
                 p = random.random()
