@@ -151,7 +151,7 @@ if __name__ == "__main__":
          n_head=8,
          state_len=1,
          burnin_len=0,
-         rollout_len=10,
+         rollout_len=1,
          n_step=1,
          n_cos=64,
          n_p=128,
