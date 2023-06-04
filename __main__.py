@@ -11,6 +11,7 @@ from agent import Learner
 
 
 def run_worker(rank,
+               cls,
                tickers,
                mock_data,
                buffer_size,
@@ -51,7 +52,8 @@ def run_worker(rank,
         learner_rref = rpc.remote(
             "learner",
             Learner,
-            args=(buffer_size,
+            args=(cls,
+                  buffer_size,
                   batch_size,
                   n_accumulate,
                   tickers,
@@ -84,7 +86,8 @@ def run_worker(rank,
     rpc.shutdown()
 
 
-def main(tickers,
+def main(cls,
+         tickers,
          mock_data,
          buffer_size,
          batch_size,
@@ -108,7 +111,8 @@ def main(tickers,
 
     mp.spawn(
         run_worker,
-        args=(tickers,
+        args=(cls,
+              tickers,
               mock_data,
               buffer_size,
               batch_size,
@@ -132,7 +136,10 @@ def main(tickers,
 
 
 if __name__ == "__main__":
-    main(tickers=["AAPL", "BAC"],
+    from model import Transformer, TransformerXL
+
+    main(cls=TransformerXL,
+         tickers=["AAPL", "BAC"],
          mock_data=True,
          buffer_size=100000,
          batch_size=32,

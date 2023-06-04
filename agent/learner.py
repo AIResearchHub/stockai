@@ -58,6 +58,7 @@ class Learner:
     save_every = 100
 
     def __init__(self,
+                 cls,
                  buffer_size,
                  batch_size,
                  n_accumulate,
@@ -91,21 +92,24 @@ class Learner:
         self.n_p = n_p
 
         # models
-        self.model = Model(vocab_size=vocab_size,
+        self.model = Model(cls=cls,
+                           vocab_size=vocab_size,
                            max_len=max_len,
                            n_layers=n_layers,
                            d_model=d_model,
                            n_head=n_head,
                            n_cos=n_cos
                            )
-        self.target_model = Model(vocab_size=vocab_size,
+        self.target_model = Model(cls=cls,
+                                  vocab_size=vocab_size,
                                   max_len=max_len,
                                   n_layers=n_layers,
                                   d_model=d_model,
                                   n_head=n_head,
                                   n_cos=n_cos
                                   )
-        self.eval_model = Model(vocab_size=vocab_size,
+        self.eval_model = Model(cls=cls,
+                                vocab_size=vocab_size,
                                 max_len=max_len,
                                 n_layers=n_layers,
                                 d_model=d_model,

@@ -1,4 +1,5 @@
 
 
 from .model import Model
-from .transformer import BlockRecurrentTransformer
+from .transformer import Transformer, TransformerXL, Longformer, BlockRecurrentTransformer
+
