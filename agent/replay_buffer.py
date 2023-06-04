@@ -10,6 +10,17 @@ from .logger import Logger
 from utils import get_context, mask_ids
 
 
+"""
+Modified for transformer xl, all recurrent states can't fit into memory
+so increase rollout length and don't store recurrent states
+
+
+sample_batch() is modified
+update_priorities() is modified
+local_buffer.finish() is modified
+"""
+
+
 @dataclass
 class Episode:
     """
@@ -211,7 +222,8 @@ class ReplayBuffer:
                 ])
                 allocs.append(self.buffer[buffer_idx].allocs[time_idx:time_idx+self.block_len+self.n_step])
                 actions.append(self.buffer[buffer_idx].actions[time_idx:time_idx+self.block_len+self.n_step])
-                states.append(torch.tensor(self.buffer[buffer_idx].states[time_idx]))
+                # states.append(torch.tensor(self.buffer[buffer_idx].states[time_idx]))
+                states.append(torch.zeros(4, 1, 512, 768))
 
             ids, bert_targets = mask_ids(ids, mask_prob=0.20)
 
@@ -272,7 +284,7 @@ class ReplayBuffer:
             for idx, state in zip(idxs, states):
                 buffer_idx, time_idx = idx
 
-                self.buffer[buffer_idx].states[time_idx:time_idx+self.block_len+self.n_step] = state
+                # self.buffer[buffer_idx].states[time_idx:time_idx+self.block_len+self.n_step] = state
 
             # log
             self.logger.total_updates += 1
@@ -338,7 +350,8 @@ class LocalBuffer:
         timestamps = np.stack(self.timestamp_buffer)
         actions = np.stack(self.action_buffer)
         rewards = np.stack(self.reward_buffer)
-        states = np.stack(self.state_buffer)
+        # states = np.stack(self.state_buffer)
+        states = None
 
         length = len(allocs)
 

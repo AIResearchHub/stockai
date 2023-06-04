@@ -138,7 +138,7 @@ def main(cls,
 if __name__ == "__main__":
     from model import Transformer, TransformerXL, Longformer
 
-    main(cls=Transformer,
+    main(cls=TransformerXL,
          tickers=["AAPL", "BAC"],
          mock_data=True,
          buffer_size=100000,
@@ -151,7 +151,7 @@ if __name__ == "__main__":
          n_head=8,
          state_len=1,
          burnin_len=0,
-         rollout_len=1,
+         rollout_len=10,
          n_step=1,
          n_cos=64,
          n_p=128,
