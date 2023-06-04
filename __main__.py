@@ -136,7 +136,7 @@ def main(cls,
 
 
 if __name__ == "__main__":
-    from model import Transformer, TransformerXL
+    from model import Transformer, TransformerXL, Longformer
 
     main(cls=Transformer,
          tickers=["AAPL", "BAC"],
