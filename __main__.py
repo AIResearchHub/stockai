@@ -128,7 +128,7 @@ def main(tickers,
 
 
 if __name__ == "__main__":
-    main(tickers=["AAPL", "AMZN"],
+    main(tickers=["AAPL", "BAC"],
          mock_data=True,
          buffer_size=100000,
          batch_size=32,

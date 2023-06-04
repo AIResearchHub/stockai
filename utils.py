@@ -155,6 +155,7 @@ def read_context(tickers, mock_data):
         # and keep first segment of each date
         if mock_data:
             c = c[~c.index.duplicated(keep='first')]
+            print(c)
             c.index = c.index.date
             c = c[~c.index.duplicated(keep='first')]
             c.index = pd.to_datetime(c.index)

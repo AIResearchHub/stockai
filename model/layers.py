@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from transformers import LongformerSelfAttention
 
 from .attention import Attention, RecurrentAttention
 from .embeddings import LearnedPositionalEncoding
@@ -8,7 +7,10 @@ from .embeddings import LearnedPositionalEncoding
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import BigBirdSelfAttention
+
+from transformers import LongformerSelfAttention
+# from transformers import BigBirdSelfAttention
+
 
 class AxialAttention(nn.Module):
     def __init__(self, dim, heads = 8, dim_head = 64):
