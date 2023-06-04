@@ -2,9 +2,9 @@ import pandas as pd
 import os
 import matplotlib.pyplot as plt
 
-dir = os.listdir()
+dir = os.listdir("logs")
 dir.sort()
-latestfile = dir[-2]
+latestfile = "logs/" + dir[-1]
 
 data = pd.read_csv(latestfile,
                    names=["Time",

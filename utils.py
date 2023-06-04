@@ -14,7 +14,7 @@ def read_sp500(filename="data/sp500.csv"):
 
 def read_tickers():
     """Return usable tickers that have completed news article datasets (no gaps between years)"""
-    path = f"C:/PycharmProjects/stockai/data/context/news/"
+    path = f"data/context/news/"
     tickers = os.listdir(path)
     tickers = filter_tickers(tickers)
     return tickers
@@ -71,7 +71,7 @@ def read_prices(tickers, start, end, repeat=1):
     """Read prices from .csv files in /data/prices/ directory"""
     prices = []
     for ticker in tickers:
-        price = pd.read_csv(f"/home/yh04/PycharmProjects/stockai/data/prices/{ticker}.csv")
+        price = pd.read_csv(f"data/prices/{ticker}.csv")
         price["Date"] = pd.to_datetime(price["Date"])
         price.set_index("Date", inplace=True)
 
@@ -115,7 +115,7 @@ def read_context(tickers, mock_data):
     context (dict[String, pd.Dataframe]): A dictionary with tickers as keys and dataframe of texts as value
     """
     context = dict()
-    srcdir = "/home/yh04/PycharmProjects/stockai/data/context"
+    srcdir = "data/context"
     for ticker in tickers:
         news = []
         news_path = f"{srcdir}/news/{ticker}"
@@ -155,7 +155,6 @@ def read_context(tickers, mock_data):
         # and keep first segment of each date
         if mock_data:
             c = c[~c.index.duplicated(keep='first')]
-            print(c)
             c.index = c.index.date
             c = c[~c.index.duplicated(keep='first')]
             c.index = pd.to_datetime(c.index)
@@ -165,7 +164,6 @@ def read_context(tickers, mock_data):
         context[ticker] = c
 
     print(context)
-
     return context
 
 

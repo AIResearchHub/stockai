@@ -30,20 +30,20 @@ class Model(nn.Module):
         self.merge2 = nn.Linear(d_model, d_model)
 
         # transformer
-        # self.transformer = Transformer(
-        #     vocab_size=vocab_size,
-        #     n_layers=n_layers,
-        #     d_model=d_model,
-        #     n_head=n_head,
-        #     p=p
-        # )
-        self.transformer = BlockRecurrentTransformer(
+        self.transformer = Transformer(
             vocab_size=vocab_size,
             n_layers=n_layers,
             d_model=d_model,
             n_head=n_head,
             p=p
         )
+        # self.transformer = BlockRecurrentTransformer(
+        #     vocab_size=vocab_size,
+        #     n_layers=n_layers,
+        #     d_model=d_model,
+        #     n_head=n_head,
+        #     p=p
+        # )
         # self.transformer = BlockBERTlucidrains(
         #     vocab_size=vocab_size,
         #     n_layers=n_layers,

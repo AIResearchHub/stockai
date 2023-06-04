@@ -57,9 +57,12 @@ class Attention(nn.Module):
 
     def forward(self, q, k, v, mask=None):
         """
-        :param   q:     [batch_size, length, d_model]
-        :param   kv:    [batch_size, length, d_model]
-        :return: out:   [batch_size, length, d_model]
+        Parameters:
+        q:     [batch_size, length, d_model]
+        kv:    [batch_size, length, d_model]
+
+        Returns:
+        out:   [batch_size, length, d_model]
         """
         q, k, v = self.w_q(q), self.w_k(k), self.w_v(v)
         q, k, v = self.split(q), self.split(k), self.split(v)
@@ -78,8 +81,11 @@ class Attention(nn.Module):
         """
         Split tensor into number of head
 
-        :param tensor: [batch_size, length, d_model]
-        :return: [batch_size, head, length, d_tensor]
+        Parameters:
+        tensor : [batch_size, length, d_model]
+
+        Returns:
+        tensor : [batch_size, head, length, d_tensor]
         """
         batch_size, length, d_model = tensor.shape
 
@@ -92,8 +98,10 @@ class Attention(nn.Module):
         """
         Inverse function of self.split(tensor : torch.Tensor)
 
-        :param tensor: [batch_size, head, length, d_tensor]
-        :return: [batch_size, length, d_model]
+        Parameters:
+        tensor : [batch_size, head, length, d_tensor]
+        Returns:
+        tensor : [batch_size, length, d_model]
         """
         batch_size, head, length, d_tensor = tensor.shape
         d_model = head * d_tensor
@@ -104,7 +112,16 @@ class Attention(nn.Module):
 
 class RecurrentAttention(nn.Module):
     """
-    Recurrent Attention module for Block Recurrent Layer
+    Recurrent Attention module for Block Recurrent Transformer Recurrent Layer
+    See https://arxiv.org/pdf/2203.07852.pdf (page 2)
+    This attention computes 4 separate queries, 2 keys and 2 values
+    from input and recurrent state respectively then
+    performs self attention and cross attention
+
+    Parameters:
+    d_model (int): Dimension of model
+    n_head (int): Number of attention heads
+
     """
 
     def __init__(self, d_model, n_head):
@@ -137,6 +154,17 @@ class RecurrentAttention(nn.Module):
         self.s_proj = nn.Linear(2 * d_model, d_model)
 
     def forward(self, qx, kx, vx, qs, ks, vs, mask=None):
+        """
+        Computes recurrent attention for block recurrent transformer
+
+        Parameters:
+        qx (Tensor[batch_size, length, d_model]): input query
+        kx (Tensor[batch_size, length, d_model]): input key
+        vx (Tensor[batch_size, length, d_model]): input value
+        qs (Tensor[batch_size, length, d_model]): state query
+        ks (Tensor[batch_size, length, d_model]): state key
+        vs (Tensor[batch_size, length, d_model]): state value
+        """
         # compute 4 distinct queries
         qx1, qs1, qx2, qs2 = self.w_qx1(qx), self.w_qs1(qs), self.w_qx2(qx), self.w_qs2(qs)
         qx1, qs1, qx2, qs2 = self.split(qx1), self.split(qs1), self.split(qx2), self.split(qs2)
@@ -171,8 +199,12 @@ class RecurrentAttention(nn.Module):
         """
         Split tensor into number of head
 
-        :param tensor: [batch_size, length, d_model]
-        :return: [batch_size, head, length, d_tensor]
+        Parameters:
+        tensor : [batch_size, length, d_model]
+
+        Returns:
+        tensor : [batch_size, head, length, d_tensor]
+
         """
         batch_size, length, d_model = tensor.shape
 
@@ -185,8 +217,11 @@ class RecurrentAttention(nn.Module):
         """
         Inverse function of self.split(tensor : torch.Tensor)
 
-        :param tensor: [batch_size, head, length, d_tensor]
-        :return: [batch_size, length, d_model]
+        Parameters:
+        tensor : [batch_size, head, length, d_tensor]
+
+        Returns:
+        tensor : [batch_size, length, d_model]
         """
         batch_size, head, length, d_tensor = tensor.shape
         d_model = head * d_tensor
