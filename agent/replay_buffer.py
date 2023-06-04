@@ -237,7 +237,7 @@ class ReplayBuffer:
             assert actions.shape == (self.block_len+self.n_step, self.batch_size, 1, 1)
             assert rewards.shape == (self.block_len, self.batch_size, 1)
             assert bert_targets.shape == (self.block_len+self.n_step, self.batch_size, self.max_len)
-            assert states.shape == (states.size(0), self.batch_size, self.state_len, self.d_model)
+            assert states.size(1) == self.batch_size
 
             block = Block(allocs=allocs,
                           ids=ids,

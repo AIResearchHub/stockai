@@ -31,7 +31,7 @@ class Attention(nn.Module):
         q, k, v = self.w_q(q), *self.w_kv(kv).chunk(2, dim=-1)
         q, k, v = self.split(q), k.unsqueeze(1), v.unsqueeze(1)
 
-        out, attention = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
 
         out = self.concat(out)
         out = self.w_concat(out)
@@ -189,11 +189,11 @@ class RecurrentAttention(nn.Module):
         ks, vs = ks.unsqueeze(1), vs.unsqueeze(1)
 
         # perform self attention and cross attention
-        x, _ = F.scaled_dot_product_attention(qx1, kx, vx, attn_mask=mask)
-        s, _ = F.scaled_dot_product_attention(qs1, ks, vs, attn_mask=mask)
+        x = F.scaled_dot_product_attention(qx1, kx, vx, attn_mask=mask)
+        s = F.scaled_dot_product_attention(qs1, ks, vs, attn_mask=mask)
 
-        xs, _ = F.scaled_dot_product_attention(qx2, ks, vs, attn_mask=mask)
-        sx, _ = F.scaled_dot_product_attention(qs2, kx, vx, attn_mask=mask)
+        xs = F.scaled_dot_product_attention(qx2, ks, vs, attn_mask=mask)
+        sx = F.scaled_dot_product_attention(qs2, kx, vx, attn_mask=mask)
 
         # concatenate and linear projection
         x_proj = self.concat(torch.concat((xs, x), dim=-1))
