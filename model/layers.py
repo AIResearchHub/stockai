@@ -7,6 +7,7 @@ from .embeddings import LearnedPositionalEncoding
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from transformers import LongformerConfig
 
 from transformers import LongformerSelfAttention, LongformerConfig
 # from transformers import BigBirdSelfAttention, BigBirdConfig
