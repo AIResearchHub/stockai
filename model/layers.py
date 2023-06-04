@@ -8,8 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from transformers import LongformerSelfAttention
-# from transformers import BigBirdSelfAttention
+from transformers import LongformerSelfAttention, LongformerConfig
+# from transformers import BigBirdSelfAttention, BigBirdConfig
 
 
 class AxialAttention(nn.Module):
@@ -123,6 +123,12 @@ class LongformerAttentionLayer(nn.Module):
 
     def __init__(self, d_model, ffn_hidden, n_head, p):
         super(LongformerAttentionLayer, self).__init__()
+        # self.config = LongformerConfig(hidden_size=d_model,
+        #                                intermediate_size=ffn_hidden,
+        #                                num_attention_heads=n_head,
+        #                                hidden_dropout_prob=p,
+        #                                attention_probs_dropout_prob=p
+        #                                )
         self.attention = LongformerSelfAttention(config=self.config)
         self.norm1 = nn.LayerNorm(d_model)
         self.dropout1 = nn.Dropout(p=p)

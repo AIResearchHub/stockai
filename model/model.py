@@ -5,13 +5,15 @@ import torch.nn as nn
 
 import numpy as np
 
-from .transformer import Transformer, BlockRecurrentTransformer, BlockBERTlucidrains
+from .transformer import Transformer, Longformer, BlockRecurrentTransformer, BlockBERTlucidrains
 
 
 class Model(nn.Module):
 
     def __init__(self,
+                 cls=Longformer,
                  vocab_size=30522,
+                 max_len=512,
                  n_layers=4,
                  d_model=512,
                  n_head=8,
@@ -30,27 +32,14 @@ class Model(nn.Module):
         self.merge2 = nn.Linear(d_model, d_model)
 
         # transformer
-        self.transformer = Transformer(
+        self.transformer = cls(
             vocab_size=vocab_size,
+            max_len=max_len,
             n_layers=n_layers,
             d_model=d_model,
             n_head=n_head,
             p=p
         )
-        # self.transformer = BlockRecurrentTransformer(
-        #     vocab_size=vocab_size,
-        #     n_layers=n_layers,
-        #     d_model=d_model,
-        #     n_head=n_head,
-        #     p=p
-        # )
-        # self.transformer = BlockBERTlucidrains(
-        #     vocab_size=vocab_size,
-        #     n_layers=n_layers,
-        #     d_model=d_model,
-        #     n_head=n_head,
-        #     p=p
-        # )
 
         # separate two heads
         self.bert_head = nn.Linear(d_model, vocab_size)
