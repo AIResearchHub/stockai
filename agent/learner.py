@@ -85,6 +85,8 @@ class Learner:
         self.batch_size = batch_size
         self.n_accumulate = n_accumulate
         self.tickers = tickers
+
+        self.vocab_size = vocab_size
         self.max_len = max_len
 
         self.d_model = d_model
@@ -257,7 +259,7 @@ class Learner:
         during training
 
         Parameters:
-        x (Tensor[1, 1], Tensor[1, 501]): allocation value and tokens to pass into model
+        x (Tensor[1, 1], Tensor[1, max_len]): allocation value and tokens to pass into model
         state (Tensor[1, state_len, d_model]): recurrent state to pass into model
 
         Returns:
@@ -428,7 +430,7 @@ class Learner:
 
         Parameters:
         allocs (Tensor[block_len+n_step, batch_size*n_accumulate, 1]): allocation values
-        ids (Tensor[block_len+n_step, batch_size*n_accumulate, 501]): tokens
+        ids (Tensor[block_len+n_step, batch_size*n_accumulate, max_len]): tokens
         actions (Tensor[block_len+n_step, batch_size*n_accumulate, 1, 1]): recorded actions
         rewards (Tensor[block_len, batch_size*n_accumulate, 1]): recorded rewards
         bert_targets (Tensor[block_len+n_step, batch_size*n_accumulate, 1]): bert targets
@@ -486,7 +488,7 @@ class Learner:
 
         Parameters:
         allocs (Tensor[block_len+n_step, batch_size*n_accumulate, 1]): allocation values
-        ids (Tensor[block_len+n_step, batch_size*n_accumulate, 501]): tokens
+        ids (Tensor[block_len+n_step, batch_size*n_accumulate, max_len]): tokens
         actions (Tensor[block_len+n_step, batch_size*n_accumulate, 1, 1]): recorded actions
         rewards (Tensor[block_len, batch_size*n_accumulate, 1]): recorded rewards
         bert_targets (Tensor[block_len+n_step, batch_size*n_accumulate, 1]): bert targets
@@ -620,8 +622,8 @@ class Learner:
         assert target.shape == (self.batch_size, 1, self.n_tau)
         assert expected.shape == (self.batch_size, self.n_tau, 1)
         assert taus.shape == (self.batch_size, self.n_tau, 1)
-        assert bert_expected.shape == (self.batch_size, 30522, 501)
-        assert bert_target.shape == (self.batch_size, 501)
+        assert bert_expected.shape == (self.batch_size, 30522, self.max_len)
+        assert bert_target.shape == (self.batch_size, self.max_len)
         assert state.shape == (self.batch_size, self.state_len, self.d_model)
         assert save_grad.shape == (self.batch_size, self.state_len, self.d_model)
 
@@ -741,8 +743,8 @@ class Learner:
         loss (Tensor[]): bert loss
 
         """
-        assert expected.shape == (self.batch_size, 30522, 501)
-        assert target.shape == (self.batch_size, 501)
+        assert expected.shape == (self.batch_size, self.vocab_size, self.max_len)
+        assert target.shape == (self.batch_size, self.max_len)
 
         return self.nll_loss(expected, target)
 
