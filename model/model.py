@@ -183,6 +183,7 @@ class IQN(nn.Module):
 
         x = (x*cos).view(batch_size*n_p*n_tau, self.d_model)
         x = self.gelu(self.linear(x))
+        x = self.gelu(self.linear(x))
         x = self.out(x)
         x = x.view(batch_size, n_p, n_tau)
 

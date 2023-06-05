@@ -168,12 +168,18 @@ class Longformer(nn.Module):
                  p=0.1
                  ):
         super(Longformer, self).__init__()
-        self.embedding = TransformerEmbedding(vocab_size=vocab_size, d_model=d_model, max_len=max_len)
-        self.layers = nn.ModuleList([LongformerAttentionLayer(d_model=d_model, ffn_hidden=4 * d_model, n_head=n_head, p=p)
-                                     for _ in range(n_layers)])
+        self.max_len = max_len
+        self.n_layers = n_layers
+        self.d_model = d_model
 
-    def init_state(self, batch_size, state_len):
-        return torch.randn(batch_size, state_len, self.d_model, device=self.device)
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.layers = nn.ModuleList(
+            [LongformerAttentionLayer(d_model=d_model, ffn_hidden=4 * d_model, n_head=n_head, p=p)
+             for _ in range(n_layers)])
+
+
+    def init_state(self, batch_size=1, device="cpu"):
+        return torch.zeros(self.n_layers, batch_size, self.max_len, self.d_model, device=device)
 
     def state_forward(self, ids, state):
         """Returns next recurrent state, since standard transformer just return original state"""
@@ -196,6 +202,7 @@ class Longformer(nn.Module):
 
         for layer in self.layers:
             x = layer(x)
+            # print(x.shape)
 
         return x, state
 

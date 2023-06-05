@@ -7,6 +7,7 @@ from .embeddings import LearnedPositionalEncoding
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from transformers import LongformerConfig
 
 from transformers import LongformerSelfAttention, LongformerConfig
 # from transformers import BigBirdSelfAttention, BigBirdConfig
@@ -127,7 +128,8 @@ class LongformerAttentionLayer(nn.Module):
                                        intermediate_size=ffn_hidden,
                                        num_attention_heads=n_head,
                                        hidden_dropout_prob=p,
-                                       attention_probs_dropout_prob=p
+                                       attention_probs_dropout_prob=p,
+                                       attention_window=[128] * 4,
                                        )
         self.attention = LongformerSelfAttention(layer_id=0, config=self.config)
         self.norm1 = nn.LayerNorm(d_model)
@@ -148,8 +150,17 @@ class LongformerAttentionLayer(nn.Module):
         Returns:
         Tensor: Output tensor after passing through the layer.
         """
+        if src_mask is None:
+            attention_mask = torch.ones((x.shape[0], x.shape[1]), dtype=torch.long, device=x.device)
+        else:
+            attention_mask = src_mask
+
+        # In this case, it's initialized to all False, meaning no position is masked.
+        is_index_masked = torch.zeros((x.shape[0], x.shape[1]), dtype=torch.bool, device=x.device)
+
         _x = x
-        x = self.attention(input_ids=x, attention_mask=src_mask)[0]
+        print(attention_mask)
+        x = self.attention(x, attention_mask=attention_mask, is_index_masked=is_index_masked)[0]
 
         x = self.norm1(x + _x)
         x = self.dropout1(x)

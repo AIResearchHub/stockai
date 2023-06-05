@@ -6,6 +6,11 @@ Using Natural Language Processing and Reinforcement Learning to predict stock pr
 google news feed using techniques from many state of the art papers
 
 
+## Transformer mock data test run
+
+![alt text](https://github.com/YHL04/stockai/blob/master/plots/transformer.png)
+
+
 ## Currently implementing
 
 
