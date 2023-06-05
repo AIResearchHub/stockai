@@ -85,6 +85,7 @@ class Learner:
         self.batch_size = batch_size
         self.n_accumulate = n_accumulate
         self.tickers = tickers
+        self.max_len = max_len
 
         self.d_model = d_model
         self.state_len = state_len
@@ -318,7 +319,7 @@ class Learner:
                           )
 
         alloc = torch.tensor(alloc, dtype=torch.float32).view(1, 1).cuda()
-        ids = torch.tensor(ids, dtype=torch.int32).view(1, 512).cuda()
+        ids = torch.tensor(ids, dtype=torch.int32).view(1, self.max_len).cuda()
         state = torch.tensor(state, dtype=torch.float32)
 
         action, state = self.get_policy(x=(alloc, ids), state=state)
