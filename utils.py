@@ -101,7 +101,7 @@ def read_context_file(filename):
     return data
 
 
-def read_context(tickers, mock_data):
+def read_context(tickers, mock_data, max_len):
     """
     This function retrieves the news articles from directory
     /news/{ticker}
@@ -141,7 +141,7 @@ def read_context(tickers, mock_data):
         c = c.dropna()
 
         try:
-            c = split_ids(c, maxlen=250)
+            c = split_ids(c, maxlen=max_len // 2)
         except Exception as e:
             print(f"ERROR: Ticker {ticker}")
             print(e)
@@ -167,7 +167,7 @@ def read_context(tickers, mock_data):
     return context
 
 
-def get_context(contexts, tickers, date, max_text=1):
+def get_context(contexts, tickers, date, max_len, max_text=1):
     """
     Given the pd.Dataframe of the news articles, tickers and date,
     retrieve a segment of tokens from news articles associated with
@@ -188,6 +188,7 @@ def get_context(contexts, tickers, date, max_text=1):
     ids (List[501]): tokens of a segment of news article
 
     """
+    assert max_len % 2 == 0
 
     # if tickers[0] == "AAPL":
     #     ids = ([0] * 250) + [102] + ([1] * 250)
@@ -208,14 +209,15 @@ def get_context(contexts, tickers, date, max_text=1):
 
     if not sample1.empty:
         ids += sample1.sum()
-    if len(ids) < 256:
-        ids += ([102] * (256 - len(ids)))
+    if len(ids) < (max_len // 2):
+        ids += ([102] * ((max_len // 2) - len(ids)))
 
     if not sample2.empty:
         ids += sample2.sum()
-    if len(ids) < 512:
-        ids += ([102] * (512 - len(ids)))
+    if len(ids) < max_len:
+        ids += ([102] * (max_len - len(ids)))
 
+    assert len(ids) == max_len
     return ids
 
 

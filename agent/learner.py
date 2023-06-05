@@ -136,7 +136,8 @@ class Learner:
 
         # contexts
         self.contexts = read_context(tickers=tickers,
-                                     mock_data=mock_data
+                                     mock_data=mock_data,
+                                     max_len=max_len,
                                      )
 
         # locks
@@ -268,7 +269,7 @@ class Learner:
 
         """
         assert x[0].shape == (1, 1)
-        assert x[1].shape == (1, 512)
+        assert x[1].shape == (1, self.max_len)
 
         self.epsilon -= self.epsilon_decay
         self.epsilon = max(self.epsilon_min, self.epsilon)
@@ -317,7 +318,8 @@ class Learner:
 
         ids = get_context(contexts=self.contexts,
                           tickers=tickers,
-                          date=timestamp
+                          date=timestamp,
+                          max_len=self.max_len
                           )
 
         alloc = torch.tensor(alloc, dtype=torch.float32).view(1, 1).cuda()

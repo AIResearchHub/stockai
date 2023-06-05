@@ -137,14 +137,14 @@ def main(cls,
 if __name__ == "__main__":
     from model import Transformer, TransformerXL, Longformer
 
-    main(cls=TransformerXL,
+    main(cls=Longformer,
          tickers=["AAPL", "BAC"],
          mock_data=True,
          buffer_size=100000,
-         batch_size=32,
+         batch_size=16,
          n_accumulate=1,
          vocab_size=30522,
-         max_len=512,
+         max_len=1024,
          n_layers=4,
          d_model=768,
          n_head=8,

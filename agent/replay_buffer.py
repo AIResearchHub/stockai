@@ -213,7 +213,8 @@ class ReplayBuffer:
                 ids.append([
                     get_context(contexts=self.contexts,
                                 tickers=self.buffer[buffer_idx].tickers,
-                                date=self.buffer[buffer_idx].timestamps[time_idx+t])
+                                date=self.buffer[buffer_idx].timestamps[time_idx+t],
+                                max_len=self.max_len)
                     for t in range(self.block_len+self.n_step)
                 ])
                 rewards.append([
