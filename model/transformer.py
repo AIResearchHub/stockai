@@ -177,9 +177,8 @@ class Longformer(nn.Module):
             [LongformerAttentionLayer(d_model=d_model, ffn_hidden=4 * d_model, n_head=n_head, p=p)
              for _ in range(n_layers)])
 
-
     def init_state(self, batch_size=1, device="cpu"):
-        return torch.zeros(self.n_layers, batch_size, self.max_len, self.d_model, device=device)
+        return torch.zeros(1, batch_size, 1, 1, device=device)
 
     def state_forward(self, ids, state):
         """Returns next recurrent state, since standard transformer just return original state"""

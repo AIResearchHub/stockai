@@ -458,7 +458,7 @@ class Learner:
                                                                 actions=actions[:, start:end, :].detach(),
                                                                 rewards=rewards[:, start:end, :].detach(),
                                                                 bert_targets=bert_targets[:, start:end, :].detach(),
-                                                                states=states[start:end, :, :].detach()
+                                                                states=states[:, start:end, :, :].detach()
                                                                 )
             loss += loss_
             bert_loss += bert_loss_
