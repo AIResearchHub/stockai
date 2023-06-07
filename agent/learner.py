@@ -14,6 +14,7 @@ import numpy as np
 import threading
 import time
 import random
+from copy import deepcopy
 
 from .actor import Actor
 from .replay_buffer import ReplayBuffer
@@ -94,39 +95,26 @@ class Learner:
         self.n_tau = n_tau
         self.n_p = n_p
 
-        # models
-        self.model = Model(cls=cls,
-                           vocab_size=vocab_size,
-                           max_len=max_len,
-                           n_layers=n_layers,
-                           d_model=d_model,
-                           n_head=n_head,
-                           n_cos=n_cos
-                           )
-        self.target_model = Model(cls=cls,
-                                  vocab_size=vocab_size,
-                                  max_len=max_len,
-                                  n_layers=n_layers,
-                                  d_model=d_model,
-                                  n_head=n_head,
-                                  n_cos=n_cos
-                                  )
-        self.eval_model = Model(cls=cls,
-                                vocab_size=vocab_size,
-                                max_len=max_len,
-                                n_layers=n_layers,
-                                d_model=d_model,
-                                n_head=n_head,
-                                n_cos=n_cos
-                                )
+        # Twin Delayed DDPG (TD3)
 
-        # sync parameters
-        self.hard_update(self.target_model, self.model)
-        self.hard_update(self.eval_model, self.model)
+        self.model1 = Model(cls=cls,
+                            vocab_size=vocab_size,
+                            max_len=max_len,
+                            n_layers=n_layers,
+                            d_model=d_model,
+                            n_head=n_head,
+                            n_cos=n_cos
+                            )
+        self.model2 = deepcopy(self.model1)
+        self.target_model1 = deepcopy(self.model1)
+        self.target_model2 = deepcopy(self.model1)
+        self.eval_model = deepcopy(self.model1)
 
         # send to cuda and wrap in DataParallel
-        self.model = nn.DataParallel(self.model).cuda()
-        self.target_model = nn.DataParallel(self.target_model).cuda()
+        self.model1 = nn.DataParallel(self.model1).cuda()
+        self.target_model1 = nn.DataParallel(self.target_model1).cuda()
+        self.model2 = nn.DataParallel(self.model2).cuda()
+        self.target_model2 = nn.DataParallel(self.target_model2).cuda()
         self.eval_model = nn.DataParallel(self.eval_model).cuda()
 
         # set model modes
@@ -152,7 +140,9 @@ class Learner:
         self.gamma = self.gamma ** n_step
 
         # optimizer and loss functions
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        self.optimizer1 = optim.Adam(self.model1.parameters(), lr=self.lr)
+        self.optimizer2 = optim.Adam(self.model2.parameters(), lr=self.lr)
+
         self.nll_loss = nn.NLLLoss(ignore_index=0)
 
         # action
@@ -417,11 +407,12 @@ class Learner:
         self.priority_queue.put((idxs, new_states, loss, bert_loss, self.epsilon))
 
         # soft update target model
-        self.soft_update(self.target_model, self.model, self.tau)
+        self.soft_update(self.target_model1, self.model1, self.tau)
+        self.soft_update(self.target_model2, self.model2, self.tau)
 
         # transfer weights to eval model
         with self.lock_model:
-            self.hard_update(self.eval_model, self.model)
+            self.hard_update(self.eval_model, self.model1)
 
         return loss, bert_loss
 
@@ -447,7 +438,8 @@ class Learner:
 
         loss, bert_loss = 0, 0
         new_states = []
-        grads = [torch.zeros(x.shape).cuda() for x in self.model.parameters()]
+        grads1 = [torch.zeros(x.shape).cuda() for x in self.model1.parameters()]
+        grads2 = [torch.zeros(x.shape).cuda() for x in self.model2.parameters()]
 
         for i in range(self.n_accumulate):
             start = i * self.batch_size
@@ -464,15 +456,22 @@ class Learner:
             bert_loss += bert_loss_
             new_states.append(new_states_)
 
-            for x, grad in zip(self.model.parameters(), grads):
+            for x, grad in zip(self.model1.parameters(), grads1):
+                if x.grad is not None:
+                    grad += x.grad
+            for x, grad in zip(self.model2.parameters(), grads2):
                 if x.grad is not None:
                     grad += x.grad
 
-        for x, grad in zip(self.model.parameters(), grads):
+        for x, grad in zip(self.model1.parameters(), grads1):
+            x.grad = grad / self.n_accumulate
+        for x, grad in zip(self.model2.parameters(), grads2):
             x.grad = grad / self.n_accumulate
 
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.1)
-        self.optimizer.step()
+        torch.nn.utils.clip_grad_norm_(self.model1.parameters(), 0.1)
+        self.optimizer1.step()
+        torch.nn.utils.clip_grad_norm_(self.model2.parameters(), 0.1)
+        self.optimizer2.step()
 
         loss /= self.n_accumulate
         bert_loss /= self.n_accumulate
@@ -505,34 +504,59 @@ class Learner:
 
         # create critic targets and new states
         with torch.no_grad():
-            state = states.detach()
+            state1 = states.detach()
+            state2 = states.detach()
 
             new_states = []
             for t in range(self.burnin_len+self.n_step):
-                new_states.append(state.detach())
+                new_states.append(state1.detach())
 
-                state = self.target_model.module.state_forward(
+                state1 = self.target_model1.module.state_forward(
                     ids=ids[t],
-                    state=state
+                    state=state1
+                )
+                state2 = self.target_model2.module.state_forward(
+                    ids=ids[t],
+                    state=state2,
                 )
 
             next_q_values = []
             for t in range(self.burnin_len+self.n_step, self.block_len+self.n_step):
-                new_states.append(state.detach())
+                new_states.append(state1.detach())
 
-                (next_q_values_, _), _, state = self.target_model.module.forward(
+                (next_q_values1_, _), _, state1 = self.target_model1.module.forward(
                     xp=[(allocs[t], ids[t]), self.actions.repeat(self.batch_size, 1, 1)],
-                    state=state,
+                    state=state1,
+                    n_tau=self.n_tau
+                )
+                (next_q_values2_, _), _, state2 = self.target_model2.module.forward(
+                    xp=[(allocs[t], ids[t]), self.actions.repeat(self.batch_size, 1, 1)],
+                    state=state2,
                     n_tau=self.n_tau
                 )
 
-                idx = torch.argmax(next_q_values_.mean(dim=2), dim=1)
+                idx = torch.argmax(next_q_values1_.mean(dim=2), dim=1)
+                next_q_values1_ = next_q_values1_[torch.arange(next_q_values1_.size(0)), idx]
+                assert next_q_values1_.shape == (self.batch_size, self.n_tau)
+
+                idx = torch.argmax(next_q_values2_.mean(dim=2), dim=1)
+                next_q_values2_ = next_q_values2_[torch.arange(next_q_values2_.size(0)), idx]
+                assert next_q_values2_.shape == (self.batch_size, self.n_tau)
+
+                # Trick One: Clipped Double-Q Learning.
+                # get the minimum of two targets
+                next_q_values_ = torch.stack([next_q_values1_, next_q_values2_], dim=1)
+                idx = torch.argmin(next_q_values_.mean(-1), dim=1)
+                print(idx)
+
+                # get index of two
                 next_q_values_ = next_q_values_[torch.arange(next_q_values_.size(0)), idx]
                 assert next_q_values_.shape == (self.batch_size, self.n_tau)
 
                 next_q_values.append(next_q_values_)
 
             assert self.gamma == 0.99
+
             targets = rewards[self.burnin_len:] + self.gamma * torch.stack(next_q_values)
             targets = targets.view(self.rollout_len, self.batch_size, 1, self.n_tau)
 
@@ -547,21 +571,34 @@ class Learner:
             assert ckpt_state.grad is None
             ckpt_state.requires_grad = True
 
-            (expected, bert_expected), taus, state = self.model.module.forward(
+            (expected1, bert_expected1), taus1, state1 = self.model1.module.forward(
+                [(allocs[ckpt], ids[ckpt]), actions[ckpt]],
+                state=ckpt_state,
+                n_tau=self.n_tau
+            )
+            (expected2, bert_expected2), taus2, state2 = self.model2.module.forward(
                 [(allocs[ckpt], ids[ckpt]), actions[ckpt]],
                 state=ckpt_state,
                 n_tau=self.n_tau
             )
 
             target = targets[ckpt-self.burnin_len].view(self.batch_size, 1, self.n_tau)
-            expected = expected.view(self.batch_size, self.n_tau, 1)
-            taus = taus.view(self.batch_size, self.n_tau, 1)
+            expected1 = expected1.view(self.batch_size, self.n_tau, 1)
+            taus1 = taus1.view(self.batch_size, self.n_tau, 1)
+            expected2 = expected2.view(self.batch_size, self.n_tau, 1)
+            taus2 = taus2.view(self.batch_size, self.n_tau, 1)
 
             bert_target = bert_targets[ckpt]
             bert_expected = bert_expected.transpose(1, 2)
 
-            loss_ = self.quantile_loss(expected, target, taus)
-            loss_.backward()
+            loss1_ = self.quantile_loss(expected1, target, taus1)
+            loss1_.backward()
+
+            loss2_ = self.quantile_loss(expected2, target, taus2)
+            loss2_.backward()
+
+            loss_ = loss1_ + loss2_
+
             # torch.autograd.backward([loss_, state], [None, save_grad])
             bert_loss_ = torch.tensor(0.)
 
@@ -585,7 +622,10 @@ class Learner:
         loss /= self.rollout_len
         bert_loss /= self.rollout_len
 
-        for x in self.model.parameters():
+        for x in self.model1.parameters():
+            if x.grad is not None:
+                x.grad.data.mul_(1/self.rollout_len)
+        for x in self.model2.parameters():
             if x.grad is not None:
                 x.grad.data.mul_(1/self.rollout_len)
 
