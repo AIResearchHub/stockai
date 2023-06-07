@@ -5,8 +5,7 @@ import torch.nn as nn
 
 import numpy as np
 
-from .transformer import Transformer, TransformerXL, Longformer, \
-    BlockRecurrentTransformer, BlockBERTlucidrains
+from transformer import *
 
 
 class Model(nn.Module):

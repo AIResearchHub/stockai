@@ -1,0 +1,5 @@
+
+
+transformer (batch_size = 8, seq_len = 2048, 201.2 sec / 62 update, 3.25 sec / update)
+longformer (batch_size = 8, seq_len = 2048, 200.7 sec / 61 update, 3.29 sec / update)
+

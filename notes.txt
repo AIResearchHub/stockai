@@ -1,6 +1,0 @@
-
-
-- transformer xl states can't fit in replay buffer memory
-
-- accumulating gradient doesn't work for transformer xl
-

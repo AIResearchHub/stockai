@@ -1,3 +1,5 @@
+
+
 import torch
 import torch.nn as nn
 
@@ -13,19 +15,26 @@ class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len):
         super(PositionalEncoding, self).__init__()
 
-        self.encoding = torch.zeros(max_len, d_model)  # Keep this on CPU
-        self.encoding.requires_grad = False  # No need for gradient
+        # same size with input matrix (for adding with input matrix)
+        self.encoding = torch.zeros(max_len, d_model).cuda()
+        self.encoding.requires_grad = False  # we don't need to compute gradient
 
-        pos = torch.arange(0, max_len).unsqueeze(dim=1).float()
-        _2i = torch.arange(0, d_model, step=2).float()
+        pos = torch.arange(0, max_len).cuda()
+        pos = pos.float().unsqueeze(dim=1)
+        # 1D => 2D unsqueeze to represent word's position
+
+        _2i = torch.arange(0, d_model, step=2).cuda().float()
+        # 'i' means index of d_model (e.g. embedding size = 50, 'i' = [0,50])
+        # "step=2" means 'i' multiplied with two (same with 2 * i)
 
         self.encoding[:, 0::2] = torch.sin(pos / (10000 ** (_2i / d_model)))
         self.encoding[:, 1::2] = torch.cos(pos / (10000 ** (_2i / d_model)))
+        # compute positional encoding to consider positional information of words
 
     def forward(self, x):
         """Obtain positional encoding according to input size"""
-        self.encoding = self.encoding.to(x.device)  # Move to the same device as input
-        return self.encoding[:x.size(1), :]
+        batch_size, seq_len, d_model = x.size()
+        return self.encoding[:seq_len, :]
 
 
 class LearnedPositionalEncoding(nn.Module):
@@ -39,11 +48,13 @@ class LearnedPositionalEncoding(nn.Module):
 
     def __init__(self, d_model, max_len):
         super(LearnedPositionalEncoding, self).__init__()
-        self.encoding = nn.Parameter(torch.randn(max_len, d_model), requires_grad=True)
+        self.encoding = nn.Parameter(torch.randn(max_len, d_model),
+                                     requires_grad=True)
 
     def forward(self, x):
         """Return learned positional encoding according to input shape"""
-        return self.encoding[:x.size(1), :]
+        batch_size, seq_len, d_model = x.size()
+        return self.encoding[:seq_len, :]
 
 
 class TokenEmbedding(nn.Module):
@@ -61,24 +72,19 @@ class TokenEmbedding(nn.Module):
         ids : [batch_size, length]
         token_emb : [batch_size, length, dim]
         """
-        return self.emb(ids)
+        token_emb = self.emb(ids)
+        return token_emb
 
 
 class TransformerEmbedding(nn.Module):
     """
-    This class manages the complete transformer embeddings consisting of both positional and token embeddings.
+    Transformer Embedding, combining positional encoding and token embedding
     """
 
-    def __init__(self, vocab_size, d_model, max_len, positional_encoding='sinusoid'):
+    def __init__(self, vocab_size, d_model, max_len):
         super(TransformerEmbedding, self).__init__()
         self.tok_emb = TokenEmbedding(vocab_size, d_model)
-
-        if positional_encoding == 'sinusoid':
-            self.pos_emb = PositionalEncoding(d_model, max_len)
-        elif positional_encoding == 'learned':
-            self.pos_emb = LearnedPositionalEncoding(d_model, max_len)
-        else:
-            raise ValueError(f"positional_encoding should be either 'sinusoid' or 'learned', but got {positional_encoding}")
+        self.pos_emb = PositionalEncoding(d_model, max_len)
 
     def forward(self, x):
         """
@@ -93,3 +99,4 @@ class TransformerEmbedding(nn.Module):
         token_emb = self.tok_emb(x)
         pos_emb = self.pos_emb(token_emb)
         return token_emb + pos_emb
+
