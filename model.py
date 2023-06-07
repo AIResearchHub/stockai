@@ -5,13 +5,11 @@ import torch.nn as nn
 
 import numpy as np
 
-from transformer import *
-
 
 class Model(nn.Module):
 
     def __init__(self,
-                 cls=TransformerXL,
+                 cls,
                  vocab_size=30522,
                  max_len=512,
                  n_layers=4,

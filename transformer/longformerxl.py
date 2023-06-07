@@ -27,15 +27,13 @@ class LongformerXL(nn.Module):
                  n_layers=4,
                  d_model=512,
                  n_head=8,
-                 p=0.1,
-                 device="cuda"
+                 p=0.1
                  ):
 
         super(LongformerXL, self).__init__()
         self.max_len = max_len
         self.n_layers = n_layers
         self.d_model = d_model
-        self.device = device
 
         self.embedding = TransformerEmbedding(vocab_size=vocab_size,
                                               d_model=d_model,
@@ -47,10 +45,10 @@ class LongformerXL(nn.Module):
                                                        p=p)
                                     for _ in range(n_layers)])
 
-    def init_state(self, batch_size=1):
-        return torch.zeros(self.n_layers, batch_size, self.max_len, self.d_model, device=self.device)
+    def init_state(self, batch_size=1, device="cpu"):
+        return torch.zeros(self.n_layers, batch_size, self.max_len, self.d_model, device=device)
 
-    def state_forward(self, state):
+    def state_forward(self, ids, state):
         """Returns next recurrent state, since standard transformer just return original state"""
         return state
 
