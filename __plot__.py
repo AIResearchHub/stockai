@@ -35,7 +35,7 @@ plt.plot(data["Loss"])
 
 plt.subplot(6, 1, 5)
 plt.title("Bert Loss (Log scale)")
-plt.yscale("log")
+plt.yscale("symlog")
 plt.plot(data["Bert Loss"])
 
 plt.subplot(6, 1, 6)

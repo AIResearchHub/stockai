@@ -58,8 +58,8 @@ class Learner:
     save_every = 100
 
     # TD3 noise
-    policy_noise = 0.2
-    noise_clip = 0.5
+    policy_noise = 0.05  # 0.2
+    noise_clip = 0.1  # 0.5
 
     def __init__(self,
                  cls,
@@ -134,7 +134,7 @@ class Learner:
         self.model2.train()
         self.target_model1.eval()
         self.target_model2.eval()
-        self.policy = self.policy.eval()
+        self.policy = self.policy.train()
         self.target_policy = self.target_policy.eval()
         self.eval_policy = self.eval_policy.eval()
 
@@ -412,45 +412,55 @@ class Learner:
 
         # Trick Two: “Delayed” Policy Updates.
         if self.update_steps % 2 == 0:
-            policy_loss = self.update_policy(allocs=allocs.cuda(),
-                                             ids=ids.cuda(),
-                                             states=states.cuda()
-                                             )
+            self.policy_loss = self.update_policy(allocs=allocs.cuda(),
+                                                  ids=ids.cuda(),
+                                                  states=states.cuda()
+                                                  )
             self.soft_update(self.target_policy, self.policy, self.tau)
 
             with self.lock_model:
                 self.hard_update(self.eval_policy, self.policy)
 
         # update new states to buffer
-        self.priority_queue.put((idxs, new_states, loss, bert_loss, self.epsilon))
+        self.priority_queue.put((idxs, new_states, loss, self.policy_loss, self.epsilon))
 
         # soft update target model
         self.soft_update(self.target_model1, self.model1, self.tau)
         self.soft_update(self.target_model2, self.model2, self.tau)
 
-        return loss, bert_loss
+        self.update_steps += 1
+
+        return loss, self.policy_loss
 
     def update_policy(self, allocs, ids, states):
         self.policy.zero_grad()
         self.model1.zero_grad()
 
-        cstate = states.detach()
-        pstate = states.detach()
-        for t in range(self.burnin_len):
-            pstate = self.policy.state_forward(x=ids[t], state=pstate)
-            cstate = self.model1.state_forward(x=ids[t], state=cstate)
+        for i in range(self.n_accumulate):
+            cstate = states.detach()
+            pstate = states.detach()
+            for t in range(self.burnin_len):
+                pstate = self.policy.state_forward(x=ids[t], state=pstate)
+                cstate = self.model1.state_forward(x=ids[t], state=cstate)
 
-        total_loss = 0.
-        for t in range(self.burnin_len, self.rollout_len):
-            action, pstate = self.policy(x=(allocs[t], ids[t]),
-                                         state=pstate)
-            (loss, _), _, cstate = self.model1(x=(allocs[t], ids[t]),
-                                               p=action,
-                                               state=cstate,
-                                               n_tau=self.n_tau)
-            total_loss -= loss.mean()
+            total_loss = 0.
+            for t in range(self.burnin_len, self.block_len):
+                action, pstate = self.policy(x=(allocs[t], ids[t]),
+                                             state=pstate)
+                (loss, _), _, cstate = self.model1(x=(allocs[t], ids[t]),
+                                                   p=action,
+                                                   state=cstate,
+                                                   n_tau=self.n_tau)
+                loss = -loss.mean()
+                loss.backward()
 
-        total_loss.backward()
+                total_loss += loss.item()
+
+        for x in self.policy.parameters():
+            if x.grad is not None:
+                x.grad.data.mul_(1/(self.n_accumulate * self.rollout_len))
+
+        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.1)
         self.policy_optimizer.step()
 
         return total_loss
@@ -527,12 +537,12 @@ class Learner:
         into different backpropagaton steps
 
         Parameters:
-        allocs (Tensor[block_len+n_step, batch_size*n_accumulate, 1]): allocation values
-        ids (Tensor[block_len+n_step, batch_size*n_accumulate, max_len]): tokens
-        actions (Tensor[block_len+n_step, batch_size*n_accumulate, 1, 1]): recorded actions
-        rewards (Tensor[block_len, batch_size*n_accumulate, 1]): recorded rewards
-        bert_targets (Tensor[block_len+n_step, batch_size*n_accumulate, 1]): bert targets
-        states (Tensor[batch_size*n_accumulate, state_len, d_model]): recorded recurrent states
+        allocs (Tensor[block_len+n_step, batch_size, 1]): allocation values
+        ids (Tensor[block_len+n_step, batch_size, max_len]): tokens
+        actions (Tensor[block_len+n_step, batch_size, 1, 1]): recorded actions
+        rewards (Tensor[block_len, batch_size, 1]): recorded rewards
+        bert_targets (Tensor[block_len+n_step, batch_size, 1]): bert targets
+        states (Tensor[batch_size, state_len, d_model]): recorded recurrent states
 
         Returns:
         loss (float): Loss of critic model
@@ -540,6 +550,8 @@ class Learner:
         new_states (float): Generated new states with new weights during training
 
         """
+        self.model1.zero_grad()
+        self.model2.zero_grad()
 
         # create critic targets and new states
         with torch.no_grad():
@@ -553,7 +565,7 @@ class Learner:
                 new_states1.append(state1.detach())
                 new_states2.append(state2.detach())
 
-                pstate = self.target_model1.module.state_forward(
+                pstate = self.target_policy.module.state_forward(
                     ids=ids[t],
                     state=pstate
                 )
@@ -596,6 +608,7 @@ class Learner:
 
                 # get the minimum of two targets
                 next_q_values_ = torch.stack([next_q_values1_, next_q_values2_], dim=1)
+                assert next_q_values_.shape == (self.batch_size, 2, self.n_tau)
                 idx = torch.argmin(next_q_values_.mean(-1), dim=1)
 
                 # get index of two
@@ -608,9 +621,6 @@ class Learner:
 
             targets = rewards[self.burnin_len:] + self.gamma * torch.stack(next_q_values)
             targets = targets.view(self.rollout_len, self.batch_size, 1, self.n_tau)
-
-        self.model1.zero_grad()
-        self.model2.zero_grad()
 
         save_grad = torch.zeros(self.batch_size, self.state_len, self.d_model).cuda()
         loss, bert_loss = 0, 0

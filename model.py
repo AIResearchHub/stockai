@@ -145,7 +145,7 @@ class Policy(nn.Module):
         # join alloc and ids
         x = F.gelu(self.merge(x * b))
         x = F.gelu(self.out1(x))
-        x = F.sigmoid(self.out2(x))
+        x = F.tanh(self.out2(x))
 
         # pass in iqn
         return x, state
