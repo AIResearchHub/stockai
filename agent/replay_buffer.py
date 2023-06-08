@@ -240,14 +240,14 @@ class ReplayBuffer:
 
             allocs = allocs.transpose(0, 1).to(torch.float32)
             ids = ids.transpose(0, 1).to(torch.int32)
-            actions = actions.transpose(0, 1).unsqueeze(2).to(torch.float32)
+            actions = actions.transpose(0, 1).to(torch.float32)
             rewards = rewards.transpose(0, 1).to(torch.float32)
             bert_targets = bert_targets.transpose(0, 1).to(torch.int64)
             states = states.to(torch.float32)
 
             assert allocs.shape == (self.block_len+self.n_step, self.batch_size, 1)
             assert ids.shape == (self.block_len+self.n_step, self.batch_size, self.max_len)
-            assert actions.shape == (self.block_len+self.n_step, self.batch_size, 1, 1)
+            assert actions.shape == (self.block_len+self.n_step, self.batch_size, 1)
             assert rewards.shape == (self.block_len, self.batch_size, 1)
             assert bert_targets.shape == (self.block_len+self.n_step, self.batch_size, self.max_len)
             assert states.size(1) == self.batch_size

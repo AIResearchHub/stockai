@@ -19,7 +19,7 @@ from copy import deepcopy
 from .actor import Actor
 from .replay_buffer import ReplayBuffer
 
-from model import Model
+from model import Critic, Policy
 from utils import read_context, get_context
 
 
@@ -41,7 +41,6 @@ class Learner:
     n_head (int): Number of attention heads in transformer
     n_cos (int): Number of cosine samples for each tau in IQN
     n_tau (int): Number of tau samples for IQN each representing a value for a percentile
-    n_p (int): Number of policy samples to be used for critic value
     state_len (int): Length of recurrent state
     n_step (int): N step returns see https://paperswithcode.com/method/n-step-returns
     burnin_len (int): Length of burnin, concept from R2D2 paper
@@ -55,8 +54,12 @@ class Learner:
     lr = 1e-4
     gamma = 0.99
 
-    tau = 0.01
+    tau = 1e-2
     save_every = 100
+
+    # TD3 noise
+    policy_noise = 0.2
+    noise_clip = 0.5
 
     def __init__(self,
                  cls,
@@ -97,30 +100,43 @@ class Learner:
 
         # Twin Delayed DDPG (TD3)
 
-        self.model1 = Model(cls=cls,
-                            vocab_size=vocab_size,
-                            max_len=max_len,
-                            n_layers=n_layers,
-                            d_model=d_model,
-                            n_head=n_head,
-                            n_cos=n_cos
-                            )
-        self.model2 = deepcopy(self.model1)
-        self.target_model1 = deepcopy(self.model1)
-        self.target_model2 = deepcopy(self.model1)
-        self.eval_model = deepcopy(self.model1)
+        model = nn.DataParallel(
+            Critic(cls=cls,
+                   vocab_size=vocab_size,
+                   max_len=max_len,
+                   n_layers=n_layers,
+                   d_model=d_model,
+                   n_head=n_head,
+                   n_cos=n_cos
+                   )
+        ).cuda()
 
-        # send to cuda and wrap in DataParallel
-        self.model1 = nn.DataParallel(self.model1).cuda()
-        self.target_model1 = nn.DataParallel(self.target_model1).cuda()
-        self.model2 = nn.DataParallel(self.model2).cuda()
-        self.target_model2 = nn.DataParallel(self.target_model2).cuda()
-        self.eval_model = nn.DataParallel(self.eval_model).cuda()
+        policy = nn.DataParallel(
+            Policy(cls=cls,
+                   vocab_size=vocab_size,
+                   max_len=max_len,
+                   n_layers=n_layers,
+                   d_model=d_model,
+                   n_head=n_head
+                   )
+        ).cuda()
+
+        self.model1 = deepcopy(model)
+        self.model2 = deepcopy(model)
+        self.target_model1 = deepcopy(model)
+        self.target_model2 = deepcopy(model)
+        self.policy = deepcopy(policy)
+        self.target_policy = deepcopy(policy)
+        self.eval_policy = deepcopy(policy)
 
         # set model modes
-        self.model.train()
-        self.target_model.eval()
-        self.eval_model.eval()
+        self.model1.train()
+        self.model2.train()
+        self.target_model1.eval()
+        self.target_model2.eval()
+        self.policy = self.policy.eval()
+        self.target_policy = self.target_policy.eval()
+        self.eval_policy = self.eval_policy.eval()
 
         # contexts
         self.contexts = read_context(tickers=tickers,
@@ -142,11 +158,9 @@ class Learner:
         # optimizer and loss functions
         self.optimizer1 = optim.Adam(self.model1.parameters(), lr=self.lr)
         self.optimizer2 = optim.Adam(self.model2.parameters(), lr=self.lr)
+        self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=self.lr)
 
         self.nll_loss = nn.NLLLoss(ignore_index=0)
-
-        # action
-        self.actions = torch.arange(-1, 1, 2/self.n_p).view(1, self.n_p, 1).cuda()
 
         # queues
         self.sample_queue = mp.Queue()
@@ -186,6 +200,8 @@ class Learner:
                                            d_model=self.d_model,
                                            state_len=self.state_len
                                            )
+
+        self.update_steps = 0
 
     @staticmethod
     def spawn_actor(learner_rref, tickers, d_model, state_len):
@@ -266,19 +282,10 @@ class Learner:
 
         with self.lock_model:
             with torch.no_grad():
-                (critic_values, _), _, state = self.eval_model.forward(
-                    (x, self.actions.repeat(1, 1, 1)),
-                    state=state,
-                    n_tau=self.n_tau
-                )
-            assert critic_values.shape == (1, self.n_p, self.n_tau)
+                action, state = self.eval_policy.forward(x=x, state=state)
 
         if random.random() <= self.epsilon:
             return random.uniform(-1, 1), state.detach().cpu().numpy()
-
-        critic_values = critic_values.mean(dim=2).view(1, self.n_p)
-        idx_ = torch.argmax(critic_values, dim=1)
-        action = self.actions[torch.arange(1), idx_]
 
         action = action.cpu().squeeze().numpy().item()
         state = state.detach().cpu().numpy()
@@ -304,7 +311,7 @@ class Learner:
 
         """
         if state is None:
-            return 0., self.model.module.init_state()
+            return 0., self.eval_policy.module.init_state()
 
         ids = get_context(contexts=self.contexts,
                           tickers=tickers,
@@ -403,6 +410,17 @@ class Learner:
                                                       states=states.cuda()
                                                       )
 
+        # Trick Two: “Delayed” Policy Updates.
+        if self.update_steps % 2 == 0:
+            policy_loss = self.update_policy(allocs=allocs.cuda(),
+                                             ids=ids.cuda(),
+                                             states=states.cuda()
+                                             )
+            self.soft_update(self.target_policy, self.policy, self.tau)
+
+            with self.lock_model:
+                self.hard_update(self.eval_policy, self.policy)
+
         # update new states to buffer
         self.priority_queue.put((idxs, new_states, loss, bert_loss, self.epsilon))
 
@@ -410,11 +428,32 @@ class Learner:
         self.soft_update(self.target_model1, self.model1, self.tau)
         self.soft_update(self.target_model2, self.model2, self.tau)
 
-        # transfer weights to eval model
-        with self.lock_model:
-            self.hard_update(self.eval_model, self.model1)
-
         return loss, bert_loss
+
+    def update_policy(self, allocs, ids, states):
+        self.policy.zero_grad()
+        self.model1.zero_grad()
+
+        cstate = states.detach()
+        pstate = states.detach()
+        for t in range(self.burnin_len):
+            pstate = self.policy.state_forward(x=ids[t], state=pstate)
+            cstate = self.model1.state_forward(x=ids[t], state=cstate)
+
+        total_loss = 0.
+        for t in range(self.burnin_len, self.rollout_len):
+            action, pstate = self.policy(x=(allocs[t], ids[t]),
+                                         state=pstate)
+            (loss, _), _, cstate = self.model1(x=(allocs[t], ids[t]),
+                                               p=action,
+                                               state=cstate,
+                                               n_tau=self.n_tau)
+            total_loss -= loss.mean()
+
+        total_loss.backward()
+        self.policy_optimizer.step()
+
+        return total_loss
 
     def train_step(self, allocs, ids, actions, rewards, bert_targets, states):
         """
@@ -506,11 +545,18 @@ class Learner:
         with torch.no_grad():
             state1 = states.detach()
             state2 = states.detach()
+            pstate = states.detach()
 
-            new_states = []
+            new_states1 = []
+            new_states2 = []
             for t in range(self.burnin_len+self.n_step):
-                new_states.append(state1.detach())
+                new_states1.append(state1.detach())
+                new_states2.append(state2.detach())
 
+                pstate = self.target_model1.module.state_forward(
+                    ids=ids[t],
+                    state=pstate
+                )
                 state1 = self.target_model1.module.state_forward(
                     ids=ids[t],
                     state=state1
@@ -522,32 +568,35 @@ class Learner:
 
             next_q_values = []
             for t in range(self.burnin_len+self.n_step, self.block_len+self.n_step):
-                new_states.append(state1.detach())
+                new_states1.append(state1.detach())
+                new_states2.append(state2.detach())
+
+                # Trick Three: Target Policy Smoothing.
+                target_action, pstate = self.target_policy(x=(allocs[t], ids[t]), state=pstate)
+                noise = (torch.randn_like(target_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
+                target_action = (target_action + noise).clamp(-1, 1)
 
                 (next_q_values1_, _), _, state1 = self.target_model1.module.forward(
-                    xp=[(allocs[t], ids[t]), self.actions.repeat(self.batch_size, 1, 1)],
+                    x=(allocs[t], ids[t]),
+                    p=target_action,
                     state=state1,
                     n_tau=self.n_tau
                 )
                 (next_q_values2_, _), _, state2 = self.target_model2.module.forward(
-                    xp=[(allocs[t], ids[t]), self.actions.repeat(self.batch_size, 1, 1)],
+                    x=(allocs[t], ids[t]),
+                    p=target_action,
                     state=state2,
                     n_tau=self.n_tau
                 )
 
-                idx = torch.argmax(next_q_values1_.mean(dim=2), dim=1)
-                next_q_values1_ = next_q_values1_[torch.arange(next_q_values1_.size(0)), idx]
                 assert next_q_values1_.shape == (self.batch_size, self.n_tau)
-
-                idx = torch.argmax(next_q_values2_.mean(dim=2), dim=1)
-                next_q_values2_ = next_q_values2_[torch.arange(next_q_values2_.size(0)), idx]
                 assert next_q_values2_.shape == (self.batch_size, self.n_tau)
 
                 # Trick One: Clipped Double-Q Learning.
+
                 # get the minimum of two targets
                 next_q_values_ = torch.stack([next_q_values1_, next_q_values2_], dim=1)
                 idx = torch.argmin(next_q_values_.mean(-1), dim=1)
-                print(idx)
 
                 # get index of two
                 next_q_values_ = next_q_values_[torch.arange(next_q_values_.size(0)), idx]
@@ -560,25 +609,30 @@ class Learner:
             targets = rewards[self.burnin_len:] + self.gamma * torch.stack(next_q_values)
             targets = targets.view(self.rollout_len, self.batch_size, 1, self.n_tau)
 
-        self.model.zero_grad()
+        self.model1.zero_grad()
+        self.model2.zero_grad()
 
         save_grad = torch.zeros(self.batch_size, self.state_len, self.d_model).cuda()
         loss, bert_loss = 0, 0
 
         intervals = list(range(self.burnin_len, self.block_len))
         for ckpt in reversed(intervals):
-            ckpt_state = new_states[ckpt].detach()
-            assert ckpt_state.grad is None
-            ckpt_state.requires_grad = True
+            ckpt_state1 = new_states1[ckpt].detach()
+            ckpt_state2 = new_states2[ckpt].detach()
+
+            assert ckpt_state1.grad is None
+            ckpt_state1.requires_grad = True
 
             (expected1, bert_expected1), taus1, state1 = self.model1.module.forward(
-                [(allocs[ckpt], ids[ckpt]), actions[ckpt]],
-                state=ckpt_state,
+                x=(allocs[ckpt], ids[ckpt]),
+                p=actions[ckpt],
+                state=ckpt_state1,
                 n_tau=self.n_tau
             )
             (expected2, bert_expected2), taus2, state2 = self.model2.module.forward(
-                [(allocs[ckpt], ids[ckpt]), actions[ckpt]],
-                state=ckpt_state,
+                x=(allocs[ckpt], ids[ckpt]),
+                p=actions[ckpt],
+                state=ckpt_state2,
                 n_tau=self.n_tau
             )
 
@@ -588,8 +642,8 @@ class Learner:
             expected2 = expected2.view(self.batch_size, self.n_tau, 1)
             taus2 = taus2.view(self.batch_size, self.n_tau, 1)
 
-            bert_target = bert_targets[ckpt]
-            bert_expected = bert_expected.transpose(1, 2)
+            # bert_target = bert_targets[ckpt]
+            # bert_expected = bert_expected.transpose(1, 2)
 
             loss1_ = self.quantile_loss(expected1, target, taus1)
             loss1_.backward()
@@ -613,8 +667,9 @@ class Learner:
             #                                                         )
 
             if ckpt != self.burnin_len:
-                assert ckpt_state.grad is not None
-                save_grad = ckpt_state.grad
+                assert ckpt_state1.grad is not None
+                save_grad1 = ckpt_state1.grad
+                save_grad2 = ckpt_state2.grad
 
             loss += loss_
             bert_loss += bert_loss_
@@ -633,9 +688,9 @@ class Learner:
         bert_loss = bert_loss.detach().cpu().numpy().item()
 
         # shape has to be [batch_size, timesteps, ...]
-        new_states = torch.stack(new_states).transpose(1, 2).transpose(0, 1).unsqueeze(3).detach().cpu().numpy()
+        new_states1 = torch.stack(new_states1).transpose(1, 2).transpose(0, 1).unsqueeze(3).detach().cpu().numpy()
 
-        return loss, bert_loss, new_states
+        return loss, bert_loss, new_states1
 
     def get_gradients_step(self, expected, target, taus, bert_expected, bert_target, state, save_grad, ckpt_state):
         """
@@ -794,9 +849,9 @@ class Learner:
         """Load weights from saved directory"""
         state_dict = torch.load(f"saved/{name}")
 
-        self.model.load_state_dict(state_dict)
-        self.target_model.load_state_dict(state_dict)
-        self.eval_model.load_state_dict(state_dict)
+        # self.model.load_state_dict(state_dict)
+        # self.target_model.load_state_dict(state_dict)
+        # self.eval_model.load_state_dict(state_dict)
 
     def save(self, name="checkpoint"):
         """Save weights to saved directory"""

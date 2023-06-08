@@ -2,11 +2,12 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 import numpy as np
 
 
-class Model(nn.Module):
+class Critic(nn.Module):
 
     def __init__(self,
                  cls,
@@ -18,7 +19,7 @@ class Model(nn.Module):
                  p=0.1,
                  n_cos=64
                  ):
-        super(Model, self).__init__()
+        super(Critic, self).__init__()
 
         # hyper-parameters
         self.d_model = d_model
@@ -43,81 +44,111 @@ class Model(nn.Module):
         self.bert_head = nn.Linear(d_model, vocab_size)
         self.critic_head = nn.Linear(d_model, d_model)
 
-        # self.bert_head = nn.Sequential(
-        #     nn.Linear(d_model, vocab_size),
-        #     nn.LogSoftmax(dim=-1)
-        # )
-        # self.critic_head = nn.Linear(d_model, d_model)
-
         # iqn
         self.iqn = IQN(
             d_model=d_model,
             n_cos=n_cos
         )
 
-        # non-linearity
-        self.gelu = nn.GELU()
-        self.softmax = nn.LogSoftmax(dim=-1)
-
         self.out1 = nn.Linear(d_model, d_model)
         self.out2 = nn.Linear(d_model, 1)
 
     def init_state(self, batch_size=1, device="cpu"):
-        """
-        :return:      Tensor[batch_size, state_len, d_model]
-        """
         return self.transformer.init_state(batch_size=batch_size, device=device)
 
     def state_forward(self, ids, state):
-        """
-        :param ids:   Tensor[batch_size, length]
-        :param state: Tensor[batch_size, state_len, d_model]
-        :return:      Tensor[batch_size, state_len, d_model]
-        """
         return self.transformer.state_forward(ids, state)
 
-    def forward(self, xp, state, n_tau):
-        """
-        :param xp:    Tensor[batch_size, length]
-                      Tensor[batch_size, n_p, 1]
-        :param state: Tensor[batch_size, state_len, d_model]
-        :param n_tau: int
-        :return:      Tensor[batch_size, num_p, n_tau], Tensor[batch_size, max_len, vocab_size])
-                      Tensor[batch_size, n]
-                      Tensor[batch_size, 1, d_model]
-        """
-
+    def forward(self, x, p, state, n_tau):
         # x = allocs
         # b = ids
         # p = policies
 
-        (x, b), p = xp
-        batch_size = p.size(0)
-        n_p = p.size(1)
+        (x, b) = x
+        batch_size = x.size(0)
 
         # compute alloc, ids, policy
-        x = self.gelu(self.alloc_head(x))
+        x = F.gelu(self.alloc_head(x))
         b, state = self.transformer(b, state)
-        p = self.gelu(self.policy_head(p))
+        p = F.gelu(self.policy_head(p))
 
         # separate transformer output into two heads
-        bert = self.softmax(self.bert_head(b))
+        bert = F.log_softmax(self.bert_head(b))
         b = self.critic_head(b.mean(dim=1))
 
         # join alloc and ids
         x = self.merge1(x * b)
-        x = x.view(batch_size, 1, self.d_model)
+        x = x.view(batch_size, self.d_model)
 
         # join alloc, ids, policy
-        assert x.shape == (batch_size, 1, self.d_model)
-        assert p.shape == (batch_size, n_p, self.d_model)
+        assert x.shape == (batch_size, self.d_model)
+        assert p.shape == (batch_size, self.d_model)
 
         x = self.merge2(x * p)
-        x = x.unsqueeze(2)
+        x = x.unsqueeze(1)
 
         # pass in iqn
         x, taus = self.iqn(x, n_tau=n_tau)
         return (x, bert), taus, state
+
+
+class Policy(nn.Module):
+
+    def __init__(self,
+                 cls,
+                 vocab_size=30522,
+                 max_len=512,
+                 n_layers=4,
+                 d_model=512,
+                 n_head=8,
+                 p=0.1
+                 ):
+        super(Policy, self).__init__()
+
+        # hyper-parameters
+        self.d_model = d_model
+
+        # alloc head, policy_head and join fc
+        self.alloc_head = nn.Linear(1, d_model)
+
+        # transformer
+        self.transformer = cls(
+            vocab_size=vocab_size,
+            max_len=max_len,
+            n_layers=n_layers,
+            d_model=d_model,
+            n_head=n_head,
+            p=p
+        )
+
+        # out head
+        self.linear = nn.Linear(d_model, d_model)
+        self.merge = nn.Linear(d_model, d_model)
+        self.out1 = nn.Linear(d_model, d_model)
+        self.out2 = nn.Linear(d_model, 1)
+
+    def init_state(self, batch_size=1, device="cpu"):
+        return self.transformer.init_state(batch_size=batch_size, device=device)
+
+    def state_forward(self, ids, state):
+        return self.transformer.state_forward(ids, state)
+
+    def forward(self, x, state):
+        x, b = x
+        # compute alloc, ids, policy
+        x = F.gelu(self.alloc_head(x))
+        b, state = self.transformer(b, state)
+
+        # separate transformer output into two heads
+        b = self.linear(b.mean(dim=1))
+
+        # join alloc and ids
+        x = F.gelu(self.merge(x * b))
+        x = F.gelu(self.out1(x))
+        x = F.sigmoid(self.out2(x))
+
+        # pass in iqn
+        return x, state
 
 
 class IQN(nn.Module):
@@ -163,25 +194,22 @@ class IQN(nn.Module):
 
     def forward(self, x, n_tau):
         """
-        :param x:     Tensor[batch_size, num_p, 1, d_model]
+        :param x:     Tensor[batch_size, 1, d_model]
         :param n_tau: int
-        :return:      Tensor[batch_size, num_p, n_tau]
+        :return:      Tensor[batch_size, n_tau]
                       Tensor[batch_size, n_tau, 1]
         """
         batch_size = x.size(0)
-        n_p = x.size(1)
+        assert x.shape == (batch_size, 1, self.d_model)
 
-        assert x.shape == (batch_size, n_p, 1, self.d_model)
+        cos, taus = self.calc_cos(batch_size, n_tau=n_tau)
 
-        cos, taus = self.calc_cos(batch_size*n_p, n_tau=n_tau)
+        cos = cos.view(batch_size, n_tau, self.d_model)
+        taus = taus.view(batch_size, n_tau)
 
-        cos = cos.view(batch_size, n_p, n_tau, self.d_model)
-        taus = taus.view(batch_size, n_p, n_tau)
-
-        x = (x*cos).view(batch_size*n_p*n_tau, self.d_model)
-        x = self.gelu(self.linear(x))
+        x = (x*cos).view(batch_size*n_tau, self.d_model)
         x = self.gelu(self.linear(x))
         x = self.out(x)
-        x = x.view(batch_size, n_p, n_tau)
+        x = x.view(batch_size, n_tau)
 
         return x, taus
