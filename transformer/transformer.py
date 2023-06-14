@@ -22,18 +22,16 @@ class Transformer(nn.Module):
     """
 
     def __init__(self,
-                 vocab_size,
-                 max_len=512,
-                 n_layers=4,
-                 d_model=512,
-                 n_head=8,
-                 p=0.1,
-                 device="cuda"
-                 ):
-
+                 vocab_size: int,
+                 max_len: int = 512,
+                 n_layers: int = 4,
+                 d_model: int = 512,
+                 n_head: int = 8,
+                 p: float = 0.1,
+                 device: str = None):
         super(Transformer, self).__init__()
-        self.device = device
 
+        self.device = device if device else "cuda" if torch.cuda.is_available() else "cpu"
         self.embedding = TransformerEmbedding(vocab_size=vocab_size,
                                               d_model=d_model,
                                               max_len=max_len)
@@ -42,9 +40,11 @@ class Transformer(nn.Module):
                                                     ffn_hidden=4 * d_model,
                                                     n_head=n_head,
                                                     p=p)
-                                    for _ in range(n_layers)])
+                                     for _ in range(n_layers)])
 
-    def init_state(self, batch_size=1, device="cpu"):
+    def init_state(self, batch_size: int = 1, device: str = "cpu"):
+        if not isinstance(batch_size, int) or batch_size < 1:
+            raise ValueError("Batch size must be a positive integer.")
         return torch.zeros(1, batch_size, 1, 1, device=device)
 
     def state_forward(self, ids, state):
@@ -62,8 +62,9 @@ class Transformer(nn.Module):
         Returns:
         x (Tensor[batch_size, length, d_model]): output
         state (Tensor[batch_size, length, d_model]): next recurrent state
-
         """
+        if ids is None or state is None:
+            raise ValueError("IDs and state cannot be None.")
         x = self.embedding(ids)
 
         for layer in self.layers:

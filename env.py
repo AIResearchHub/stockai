@@ -1,14 +1,19 @@
+import threading
 
-
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
 from utils import read_prices
 
 import warnings
-warnings.filterwarnings("ignore")
+import warnings
 
+import matplotlib.pyplot as plt
+import pandas as pd
+
+from utils import read_prices
+
+warnings.filterwarnings("ignore")
 
 class Env:
     """
@@ -29,6 +34,7 @@ class Env:
     repeat (int): If repeat, then prices are duplicated "repeat" times to look at more context at each date and time
 
     """
+
     def __init__(self,
                  tickers,
                  render,
@@ -115,7 +121,7 @@ class Env:
         temp_tickers (List[2]): 2 newly sampled tickers
 
         """
-        if self.time >= self.temp_timesteps-1:
+        if self.time >= self.temp_timesteps - 1:
             return (self.alloc, self.temp_index[self.time]), 0, True, self.temp_tickers
 
         self.alloc += (action / action_scale)
@@ -128,7 +134,7 @@ class Env:
         # change of prices represented as % - 0 means unchanged
         change = (curr_prices / prev_prices) - 1
         # (alloc1 * change1) + (alloc2 * change2) = total change
-        reward = (self.alloc * change[0]) + ((1-self.alloc) * change[1])
+        reward = (self.alloc * change[0]) + ((1 - self.alloc) * change[1])
 
         if self.render:
             self.render_class.step(reward, change[0], change[1])
@@ -154,8 +160,8 @@ class Env:
         stock1_reward = 0.
         stock2_reward = 0.
 
-        for t in range(1, self.temp_timesteps-1):
-            prev_prices = self.temp_prices.loc[t-1].to_numpy()
+        for t in range(1, self.temp_timesteps - 1):
+            prev_prices = self.temp_prices.loc[t - 1].to_numpy()
             curr_prices = self.temp_prices.loc[t].to_numpy()
             change = (curr_prices / prev_prices) - 1
 
@@ -224,6 +230,9 @@ class Render:
         self.change1.append(self.eq_c1)
         self.change2.append(self.eq_c2)
 
+    def is_main_thread(self):
+        return threading.current_thread() == threading.main_thread()
+
     def render(self):
         """Called at the end of the episode to render the plot"""
         plt.clf()
@@ -232,4 +241,6 @@ class Render:
         plt.plot(self.change2, c="blue")
         plt.plot(self.rewards, c="red")
 
-        plt.pause(0.00001)
+        # Only call render if we're in the main thread
+        if self.is_main_thread():
+            plt.pause(0.00001)

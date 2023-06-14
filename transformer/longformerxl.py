@@ -22,18 +22,18 @@ class LongformerXL(nn.Module):
     """
 
     def __init__(self,
-                 vocab_size,
-                 max_len=512,
-                 n_layers=4,
-                 d_model=512,
-                 n_head=8,
-                 p=0.1
-                 ):
-
+                 vocab_size: int,
+                 max_len: int = 512,
+                 n_layers: int = 4,
+                 d_model: int = 512,
+                 n_head: int = 8,
+                 p: float = 0.1,
+                 device: str = None):
         super(LongformerXL, self).__init__()
         self.max_len = max_len
         self.n_layers = n_layers
         self.d_model = d_model
+        self.device = device if device else "cuda" if torch.cuda.is_available() else "cpu"
 
         self.embedding = TransformerEmbedding(vocab_size=vocab_size,
                                               d_model=d_model,

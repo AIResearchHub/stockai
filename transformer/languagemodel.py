@@ -20,14 +20,13 @@ class TransformerLM(nn.Module):
     """
 
     def __init__(self,
-                 cls,
-                 vocab_size,
-                 max_len=512,
-                 n_layers=4,
-                 d_model=512,
-                 n_head=8,
-                 p=0.1
-                 ):
+                 vocab_size: int,
+                 max_len: int = 512,
+                 n_layers: int = 4,
+                 d_model: int = 512,
+                 n_head: int = 8,
+                 p: float = 0.1,
+                 device: str = None):
 
         super(TransformerLM, self).__init__()
 

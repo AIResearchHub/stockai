@@ -1,4 +1,4 @@
-
+import threading
 
 import numpy as np
 import time
@@ -108,6 +108,7 @@ class Actor:
             total_reward = self.env.normalize_reward(total_reward)
             episode = self.local_buffer.finish(tickers, total_reward, time.time()-start)
             self.return_episode(episode).wait()
+
 
             self.env.render_episode()
 
